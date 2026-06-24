@@ -12,71 +12,125 @@ import TierBadge from "@/components/TierBadge";
 import LogoutButton from "@/components/LogoutButton";
 import { UserIcon, SpinnerIcon } from "@/components/IconComponents";
 import { createJob, getVideos, getVideoDownloadUrl, type Video } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import {
+  isTauri,
+  tauriCreateJob,
+  tauriListJobs,
+  tauriRunPipeline,
+  type MontageJob,
+} from "@/lib/tauri";
 
 export default function DashboardPage() {
   const router = useRouter();
   const supabase = createClient();
+  const { user: tauriUser, isTauriMode } = useAuth();
+  const { logout: tauriLogout } = useAuth();
 
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [videos, setVideos] = useState<Video[]>([]);
+  const [tauriJobs, setTauriJobs] = useState<MontageJob[]>([]);
   const [videosLoading, setVideosLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [tier, setTier] = useState<"free" | "pro">("free");
   const [tierUsed, setTierUsed] = useState(0);
   const [tierLimit, setTierLimit] = useState(3);
 
-  // Fetch user
+  // ── Tauri mode: auth from context ──────────────────────────────────
   useEffect(() => {
+    if (!isTauriMode) return;
+    if (tauriUser) {
+      setUser({ email: tauriUser.email, id: tauriUser.id });
+      setTier(tauriUser.tier as "free" | "pro");
+      setTierUsed(tauriUser.videos_this_month);
+      setTierLimit(tauriUser.tier === "pro" ? 999 : 3);
+      setLoading(false);
+    } else {
+      router.push("/login");
+    }
+  }, [isTauriMode, tauriUser, router]);
+
+  // ── Web mode: Supabase auth ────────────────────────────────────────
+  useEffect(() => {
+    if (isTauriMode) return;
     const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) {
         router.push("/login");
         return;
       }
-      setUser(user);
+      setUser(data.user);
       setLoading(false);
     };
     getUser();
-  }, [supabase, router]);
+  }, [isTauriMode, supabase, router]);
 
-  // Fetch videos
-  const fetchVideos = useCallback(async () => {
+  // ── Fetch videos/jobs ──────────────────────────────────────────────
+  const fetchItems = useCallback(async () => {
     try {
-      const data = await getVideos();
-      setVideos(data);
-      setTierUsed(data.length);
-    } catch (err: any) {
-      if (err.message?.includes("401") || err.message?.includes("unauthorized") || err.message?.includes("Session expired")) {
+      if (isTauriMode && tauriUser) {
+        const jobs = await tauriListJobs(tauriUser.id);
+        setTauriJobs(jobs);
+        // Convert to Video format for the gallery
+        const videoItems: Video[] = jobs
+          .filter((j) => j.status === "done")
+          .map((j) => ({
+            id: j.id,
+            job_id: j.id,
+            user_id: tauriUser.id,
+            title: j.title,
+            status: j.status,
+            storage_path: j.result_path || "",
+            thumbnail_path: undefined,
+            duration_s: 0,
+            platform_profile: "",
+            style_playbook: "",
+            size_bytes: 0,
+            created_at: j.created_at,
+            expires_at: undefined,
+            download_url: j.result_path || "",
+          }));
+        setVideos(videoItems);
+        setTierUsed(tauriUser.videos_this_month);
+      } else {
+        const data = await getVideos();
+        setVideos(data);
+        setTierUsed(data.length);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("401") || msg.includes("unauthorized")) {
         toast.error("Session expired");
         router.push("/login");
         return;
       }
-      toast.error("Connection lost. Retrying...");
-      // Auto-retry after 3s
-      setTimeout(fetchVideos, 3000);
+      if (!isTauriMode) {
+        toast.error("Connection lost. Retrying...");
+        setTimeout(fetchItems, 3000);
+      }
     } finally {
       setVideosLoading(false);
     }
-  }, [router]);
+  }, [isTauriMode, tauriUser, router]);
 
   useEffect(() => {
-    if (!loading && user) {
-      fetchVideos();
+    if (!loading && (user || tauriUser)) {
+      fetchItems();
     }
-  }, [loading, user, fetchVideos]);
+  }, [loading, user, tauriUser, fetchItems]);
 
-  // Poll for updates when any job is processing
+  // Poll for processing jobs
   useEffect(() => {
-    const hasProcessing = videos.some((v) => v.status === "processing");
-    if (!hasProcessing) return;
-
-    const interval = setInterval(fetchVideos, 5000);
+    const processingJobs = isTauriMode
+      ? tauriJobs.filter((j) => j.status === "processing" || j.status === "pending")
+      : videos.filter((v) => v.status === "processing");
+    if (processingJobs.length === 0) return;
+    const interval = setInterval(fetchItems, 5000);
     return () => clearInterval(interval);
-  }, [videos, fetchVideos]);
+  }, [isTauriMode, tauriJobs, videos, fetchItems]);
 
+  // ── Create job ─────────────────────────────────────────────────────
   const handleCreate = async (params: {
     pipeline: string;
     title: string;
@@ -87,14 +141,30 @@ export default function DashboardPage() {
   }) => {
     setCreating(true);
     try {
-      await createJob(params);
-      toast.success("Video job created");
-      fetchVideos();
-    } catch (err: any) {
-      if (err.message?.includes("rate") || err.message?.includes("limit")) {
-        toast.error("You've used all 3 free videos this month. Upgrade to Pro.");
+      if (isTauriMode && tauriUser) {
+        const job = await tauriCreateJob(tauriUser.id, {
+          title: params.title,
+          topic: params.topic || undefined,
+          duration: parseInt(params.duration) || 60,
+          platform: params.platform,
+          style: params.style,
+          pipeline: params.pipeline,
+        });
+        toast.success("Video job created");
+        // Start pipeline in background
+        tauriRunPipeline(job.id).catch(() => {});
+        fetchItems();
       } else {
-        toast.error(err.message || "Failed to create job");
+        await createJob(params);
+        toast.success("Video job created");
+        fetchItems();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create job";
+      if (msg.includes("rate") || msg.includes("limit") || msg.includes("Tier limit")) {
+        toast.error("You've used all your free videos. Upgrade to Pro.");
+      } else {
+        toast.error(msg);
       }
     } finally {
       setCreating(false);
@@ -103,6 +173,13 @@ export default function DashboardPage() {
 
   const handleDownload = async (id: string) => {
     try {
+      if (isTauriMode) {
+        const job = tauriJobs.find((j) => j.id === id);
+        if (job?.result_path) {
+          window.open(`file://${job.result_path}`, "_blank");
+          return;
+        }
+      }
       const url = await getVideoDownloadUrl(id);
       window.open(url, "_blank");
     } catch {
@@ -110,10 +187,23 @@ export default function DashboardPage() {
     }
   };
 
-  const handleRetry = async (id: string) => {
-    // For now, this is a stub — re-creates a job
+  const handleRetry = async (_id: string) => {
     toast.info("Retry coming soon");
   };
+
+  const displayUser = user || (tauriUser ? { email: tauriUser.email } : null);
+  const allItems = isTauriMode
+    ? [
+        ...tauriJobs.map((j) => ({
+          id: j.id,
+          status: j.status === "done" ? "done" : j.status === "failed" ? "error" : "processing",
+          title: j.title,
+          duration_s: 0,
+          storage_path: j.result_path || "",
+          created_at: j.created_at,
+        })),
+      ]
+    : videos;
 
   if (loading) {
     return (
@@ -123,33 +213,41 @@ export default function DashboardPage() {
     );
   }
 
-  const doneCount = videos.filter((v) => v.status === "done").length;
+  const doneCount = allItems.filter(
+    (v: { status: string }) => v.status === "done",
+  ).length;
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* Top bar */}
       <header className="flex items-center justify-between px-6 py-3 border-b border-[var(--border)]">
         <Link href="/" className="text-lg font-bold tracking-widest">
           MON<span className="text-[var(--accent)]">†</span>AGE
         </Link>
         <div className="flex items-center gap-3">
-          {user?.email && (
+          {displayUser?.email && (
             <span className="text-xs font-mono text-[var(--text-tertiary)] hidden sm:block">
-              {user.email}
+              {displayUser.email}
             </span>
           )}
           <div className="p-2 border border-[var(--border)]">
             <UserIcon size={18} className="text-[var(--text-secondary)]" />
           </div>
-          <LogoutButton />
+          {isTauriMode ? (
+            <button
+              onClick={tauriLogout}
+              className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider border border-[var(--border)] hover:border-[var(--accent-red)] hover:text-[var(--accent-red)] transition-colors"
+            >
+              Logout
+            </button>
+          ) : (
+            <LogoutButton />
+          )}
         </div>
       </header>
 
       <div className="flex-1 max-w-5xl w-full mx-auto px-4 py-6 space-y-6">
-        {/* Tier indicator */}
         <TierBadge tier={tier} used={doneCount} limit={tierLimit} />
 
-        {/* Rate-limited overlay */}
         {!creating && doneCount >= tierLimit && tier === "free" && (
           <div className="border border-[var(--accent)] bg-[var(--accent)]/5 p-6 text-center space-y-3">
             <p className="text-sm font-bold">
@@ -167,15 +265,13 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Create form */}
         {!(!creating && doneCount >= tierLimit && tier === "free") && (
           <CreateForm onSubmit={handleCreate} loading={creating} />
         )}
 
-        {/* Gallery */}
         <section>
           <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-4">
-            Your Videos ({videos.length})
+            Your Videos ({allItems.length})
           </h2>
 
           {videosLoading ? (
@@ -193,7 +289,7 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
-          ) : videos.length === 0 ? (
+          ) : allItems.length === 0 ? (
             <div className="border border-[var(--border)] bg-[var(--bg-secondary)] p-8 text-center">
               <p className="text-sm text-[var(--text-secondary)] mb-2">
                 No videos yet. Create your first one above.
@@ -204,10 +300,18 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {videos.map((video) => (
+              {allItems.map((video: { id: string; status: string; title: string; created_at: string; storage_path?: string; duration_s?: number }) => (
                 <VideoCard
                   key={video.id}
-                  video={video}
+                  video={{
+                    id: video.id,
+                    title: video.title,
+                    status: video.status,
+                    created_at: video.created_at,
+                    storage_path: video.storage_path || "",
+                    duration_s: video.duration_s || 0,
+                    download_url: video.storage_path || "",
+                  }}
                   onDownload={handleDownload}
                   onRetry={handleRetry}
                 />

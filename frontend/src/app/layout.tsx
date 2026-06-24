@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import { AuthProviderWrapper } from "@/components/AuthProviderWrapper";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -40,7 +41,7 @@ export default function RootLayout({
       className={`${spaceGrotesk.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} h-full`}
     >
       <body className="min-h-full flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] antialiased">
-        {children}
+        <AuthProviderWrapper>{children}</AuthProviderWrapper>
         <Toaster
           position="bottom-right"
           toastOptions={{
