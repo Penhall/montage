@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Build
+.next/
+dist/
+build/
+
+# Temp
+backend/tmp/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

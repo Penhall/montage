@@ -1,0 +1,31 @@
+# Montage Backend Dependencies
+# Python 3.12+
+
+# ASGI server
+uvicorn[standard]>=0.34.0
+
+# Web framework
+fastapi>=0.115.0
+
+# Validation
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Supabase client
+supabase>=2.9.0
+
+# Async HTTP
+httpx>=0.28.0
+
+# JWT validation
+PyJWT>=2.10.0
+cryptography>=44.0.0
+
+# Stripe (stub for now)
+stripe>=11.4.0
+
+# Logging structured
+structlog>=25.1.0
+
+# Dev/type-checking
+python-multipart>=0.0.18
