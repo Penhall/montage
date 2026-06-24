@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  turbopack: {
-    root: "/root/montage/frontend",
-  },
+  // Montage — AI Video Production SaaS
 };
 
 export default nextConfig;
