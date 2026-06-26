@@ -4,7 +4,6 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import CreateForm from "@/components/CreateForm";
 import VideoCard from "@/components/VideoCard";
@@ -12,6 +11,7 @@ import TierBadge from "@/components/TierBadge";
 import LogoutButton from "@/components/LogoutButton";
 import { UserIcon, SpinnerIcon } from "@/components/IconComponents";
 import { createJob, getVideos, getVideoDownloadUrl, type Video } from "@/lib/api";
+import { getUser } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
 import {
   isTauri,
@@ -23,9 +23,7 @@ import {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const supabase = createClient();
-  const { user: tauriUser, isTauriMode } = useAuth();
-  const { logout: tauriLogout } = useAuth();
+  const { user: tauriCtxUser, logout: tauriLogout, isTauriMode } = useAuth();
 
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -57,51 +55,50 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // ── Tauri mode: auth from context ──────────────────────────────────
+  // ── Auth ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isTauriMode) return;
-    if (tauriUser) {
-      setUser({ email: tauriUser.email, id: tauriUser.id });
-      setTier(tauriUser.tier as "free" | "pro");
-      setTierUsed(tauriUser.videos_this_month);
-      setTierLimit(tauriUser.tier === "pro" ? 999 : 3);
-      setLoading(false);
-    } else {
-      router.push("/login");
-    }
-  }, [isTauriMode, tauriUser, router]);
-
-  // ── Web mode: Supabase auth ────────────────────────────────────────
-  useEffect(() => {
-    if (isTauriMode) return;
-    const getUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) {
+    if (isTauriMode) {
+      // Tauri mode: the auth context provides the user
+      if (!tauriCtxUser) {
         router.push("/login");
         return;
       }
-      setUser(data.user);
+      setUser({ email: tauriCtxUser.email, id: tauriCtxUser.id });
+      setTier(tauriCtxUser.tier as "free" | "pro");
+      setTierLimit(tauriCtxUser.tier === "pro" ? 999 : 3);
+      setLoading(false);
+      return;
+    }
+
+    const fetchUser = async () => {
+      const u = await getUser();
+      if (!u) {
+        router.push("/login");
+        return;
+      }
+      setUser(u);
+      setTier(u.tier as "free" | "pro");
+      setTierLimit(u.tier === "pro" ? 999 : 3);
       setLoading(false);
     };
-    getUser();
-  }, [isTauriMode, supabase, router]);
+    fetchUser();
+  }, [isTauriMode, tauriCtxUser, router]);
 
   // ── Fetch videos/jobs ──────────────────────────────────────────────
   const fetchItems = useCallback(async () => {
     try {
-      if (isTauriMode && tauriUser) {
-        const jobs = await tauriListJobs(tauriUser.id);
+      if (isTauriMode) {
+        if (!tauriCtxUser) return;
+        const jobs = await tauriListJobs(tauriCtxUser.id);
         setTauriJobs(jobs);
-        // Convert to Video format for the gallery
         const videoItems: Video[] = jobs
-          .filter((j) => j.status === "done")
+          .filter((j: MontageJob) => j.status === "done")
           .map(tauriJobToVideo);
         setVideos(videoItems);
-        setTierUsed(tauriUser.videos_this_month);
+        setTierUsed(videoItems.length);
       } else {
         const data = await getVideos();
         setVideos(data);
-        setTierUsed(data.length);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
@@ -117,13 +114,26 @@ export default function DashboardPage() {
     } finally {
       setVideosLoading(false);
     }
-  }, [isTauriMode, tauriUser, router, tauriJobToVideo]);
+  }, [isTauriMode, tauriCtxUser, router, tauriJobToVideo]);
+
+  // Fetch tier info from /api/me for web mode
+  useEffect(() => {
+    if (isTauriMode) return;
+    if (!loading && user) {
+      getUser().then((u) => {
+        if (u) {
+          setTier(u.tier as "free" | "pro");
+          setTierLimit(u.tier === "pro" ? 999 : 3);
+        }
+      });
+    }
+  }, [loading, user, isTauriMode]);
 
   useEffect(() => {
-    if (!loading && (user || tauriUser)) {
+    if (!loading && (user || (isTauriMode && tauriCtxUser))) {
       fetchItems();
     }
-  }, [loading, user, tauriUser, fetchItems]);
+  }, [loading, user, isTauriMode, tauriCtxUser, fetchItems]);
 
   // Poll for processing jobs
   useEffect(() => {
@@ -146,8 +156,9 @@ export default function DashboardPage() {
   }) => {
     setCreating(true);
     try {
-      if (isTauriMode && tauriUser) {
-        const job = await tauriCreateJob(tauriUser.id, {
+      if (isTauriMode) {
+        if (!tauriCtxUser) throw new Error("Not logged in");
+        const job = await tauriCreateJob(tauriCtxUser.id, {
           title: params.title,
           topic: params.topic || undefined,
           duration: parseInt(params.duration) || 60,
@@ -156,7 +167,6 @@ export default function DashboardPage() {
           pipeline: params.pipeline,
         });
         toast.success("Video job created");
-        // Start pipeline in background
         tauriRunPipeline(job.id).catch(() => {});
         fetchItems();
       } else {
@@ -196,7 +206,7 @@ export default function DashboardPage() {
     toast.info("Retry coming soon");
   };
 
-  const displayUser = user || (tauriUser ? { email: tauriUser.email } : null);
+  const displayUser = user;
   const allItems: Video[] = isTauriMode
     ? tauriJobs.map(tauriJobToVideo)
     : videos;
@@ -230,7 +240,7 @@ export default function DashboardPage() {
           </div>
           {isTauriMode ? (
             <button
-              onClick={tauriLogout}
+              onClick={() => tauriLogout()}
               className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider border border-[var(--border)] hover:border-[var(--accent-red)] hover:text-[var(--accent-red)] transition-colors"
             >
               Logout

@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { SpinnerIcon, DownloadIcon, TrashIcon, CopyIcon } from "@/components/IconComponents";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import JobProgress from "@/components/JobProgress";
 import { getVideo, getVideoDownloadUrl, deleteVideo, type Video } from "@/lib/api";
+import { getUser } from "@/lib/auth-client";
 
 interface VideoDetailClientProps {
   id: string;
@@ -16,7 +16,6 @@ interface VideoDetailClientProps {
 
 export default function VideoDetailClient({ id }: VideoDetailClientProps) {
   const router = useRouter();
-  const supabase = createClient();
 
   const [video, setVideo] = useState<Video | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,9 +24,7 @@ export default function VideoDetailClient({ id }: VideoDetailClientProps) {
 
   useEffect(() => {
     const fetchData = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const user = await getUser();
       if (!user) {
         router.push("/login");
         return;
@@ -50,7 +47,7 @@ export default function VideoDetailClient({ id }: VideoDetailClientProps) {
     };
 
     fetchData();
-  }, [id, supabase, router]);
+  }, [id, router]);
 
   // Poll while processing
   useEffect(() => {
@@ -199,51 +196,58 @@ export default function VideoDetailClient({ id }: VideoDetailClientProps) {
             ["Platform", video.platform],
             ["Size", formatSize(video.size)],
           ].map(([label, value]) => (
-            <div key={label} className="flex items-center justify-between px-4 py-3">
+            <div
+              key={label as string}
+              className="flex items-center justify-between px-4 py-3"
+            >
               <span className="text-xs font-mono text-[var(--text-tertiary)] uppercase tracking-wider">
-                {label}
+                {label as string}
               </span>
-              <span className="text-sm text-[var(--text-primary)]">{value}</span>
+              <span className="text-sm text-[var(--text-secondary)] font-mono">
+                {value as string}
+              </span>
             </div>
           ))}
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-3">
-          {video.status === "done" && (
+        {video.status === "done" && (
+          <div className="flex gap-3">
             <button
               onClick={handleDownload}
-              className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider bg-[var(--accent-green)] text-black border border-[var(--accent-green)] hover:bg-transparent hover:text-[var(--accent-green)] transition-colors"
+              className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider bg-[var(--accent)] text-black border border-[var(--accent)] hover:bg-transparent hover:text-[var(--accent)] transition-colors"
             >
               <DownloadIcon size={16} />
               Download
             </button>
-          )}
-          <button
-            onClick={handleCreateSimilar}
-            className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)] transition-colors"
-          >
-            <CopyIcon size={16} />
-            Create Similar
-          </button>
-          <button
-            onClick={() => setDeleteOpen(true)}
-            className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border border-[var(--accent-red)] text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-black transition-colors ml-auto"
-          >
-            <TrashIcon size={16} />
-            Delete
-          </button>
-        </div>
+            <button
+              onClick={handleCreateSimilar}
+              className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--text-tertiary)] transition-colors"
+            >
+              <CopyIcon size={16} />
+              Create similar
+            </button>
+            <button
+              onClick={() => setDeleteOpen(true)}
+              className="flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border border-[var(--accent-red)] text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-black transition-colors ml-auto"
+            >
+              <TrashIcon size={16} />
+              Delete
+            </button>
+          </div>
+        )}
       </div>
 
       <ConfirmDialog
         open={deleteOpen}
-        title="Delete video"
-        message="Are you sure you want to delete this video? This action cannot be undone."
+        title="Delete Video"
+        message="Are you sure you want to delete this video? This cannot be undone."
         confirmLabel={deleting ? "Deleting..." : "Delete"}
         variant="danger"
         onConfirm={handleDelete}
-        onCancel={() => setDeleteOpen(false)}
+        onCancel={() => {
+          setDeleteOpen(false);
+        }}
       />
     </div>
   );

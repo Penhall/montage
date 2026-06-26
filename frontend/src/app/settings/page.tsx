@@ -4,15 +4,14 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import LogoutButton from "@/components/LogoutButton";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { SpinnerIcon, UserIcon } from "@/components/IconComponents";
+import { getUser } from "@/lib/auth-client";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -20,24 +19,24 @@ export default function SettingsPage() {
   const [deletePassword, setDeletePassword] = useState("");
   const [deleting, setDeleting] = useState(false);
 
-  const [tier] = useState<"free" | "pro">("free");
-  const [used] = useState(0);
-  const [limit] = useState(3);
+  const [tier, setTier] = useState<"free" | "pro">("free");
+  const [used, setUsed] = useState(0);
+  const [limit, setLimit] = useState(3);
 
   useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
+    const fetchUser = async () => {
+      const u = await getUser();
+      if (!u) {
         router.push("/login");
         return;
       }
-      setUser(user);
+      setUser(u);
+      setTier(u.tier as "free" | "pro");
+      setLimit(u.tier === "pro" ? 999 : 3);
       setLoading(false);
     };
-    getUser();
-  }, [supabase, router]);
+    fetchUser();
+  }, [router]);
 
   const handleUpgrade = () => {
     toast.info("Stripe checkout coming soon!");
@@ -46,18 +45,6 @@ export default function SettingsPage() {
   const handleDeleteAccount = async () => {
     if (!deletePassword) return;
     setDeleting(true);
-
-    // Re-authenticate before deleting
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: user.email,
-      password: deletePassword,
-    });
-
-    if (signInError) {
-      toast.error("Password incorrect");
-      setDeleting(false);
-      return;
-    }
 
     // Stub: actual deletion requires admin API
     toast.info("Account deletion requires admin action. Contact support.");

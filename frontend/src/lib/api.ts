@@ -1,4 +1,4 @@
-import { createClient } from "./supabase/client";
+import { apiFetch } from "./api-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -38,49 +38,6 @@ export interface Video {
   created_at: string;
   stage?: string;
   progress?: number;
-}
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const supabase = createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const token = session?.access_token;
-
-  return {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
-async function apiFetch<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
-  const headers = await getAuthHeaders();
-  const url = `${API_BASE}${path}`;
-
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...headers,
-      ...options.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => "");
-    let errorMessage: string;
-    try {
-      const parsed = JSON.parse(errorBody);
-      errorMessage = parsed.detail || parsed.message || response.statusText;
-    } catch {
-      errorMessage = errorBody || response.statusText;
-    }
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
 }
 
 export async function createJob(params: CreateJobParams): Promise<Job> {
