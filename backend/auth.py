@@ -22,6 +22,7 @@ from backend.config import settings
 logger = logging.getLogger(__name__)
 
 PUBLIC_PATHS = frozenset({
+    # Full paths (direct access)
     "/api/health",
     "/api/auth/signup",
     "/api/auth/login",
@@ -29,6 +30,11 @@ PUBLIC_PATHS = frozenset({
     "/docs",
     "/openapi.json",
     "/redoc",
+    # Stripped paths (when behind Tailscale funnel with --set-path /api)
+    "/health",
+    "/auth/signup",
+    "/auth/login",
+    "/webhook/stripe",
 })
 
 

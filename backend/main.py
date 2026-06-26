@@ -70,6 +70,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://localhost:3000",
+        "https://montage-eight.vercel.app",
+        "https://cadalora.tail181660.ts.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -98,6 +100,27 @@ app.include_router(checkout_router)
 app.include_router(health_router)
 app.include_router(jobs_router)
 app.include_router(videos_router)
+
+# ── Stripped-path aliases (for Tailscale funnel --set-path /api) ────────
+# The funnel strips /api before proxying, so the backend receives /health
+# instead of /api/health. These aliases handle both forms.
+
+@app.get("/health")
+async def health_alias():
+    """Alias for /api/health when behind path-stripping proxy."""
+    return {"status": "ok", "version": app.version}
+
+from backend.routes.auth import signup, login as login_handler  # type: ignore[import-untyped]
+
+@app.post("/auth/signup", status_code=201)
+async def signup_alias(body: dict) -> dict:
+    """Alias for /api/auth/signup."""
+    return await signup(body)
+
+@app.post("/auth/login")
+async def login_alias(body: dict) -> dict:
+    """Alias for /api/auth/login."""
+    return await login_handler(body)
 
 
 # ── Startup / Shutdown ─────────────────────────────────────────────────
