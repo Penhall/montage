@@ -15,6 +15,7 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     name TEXT,
     tier TEXT NOT NULL DEFAULT 'free',
+    is_admin BOOLEAN NOT NULL DEFAULT false,
     videos_this_month INT NOT NULL DEFAULT 0,
     reset_at TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '30 days',
     stripe_customer_id TEXT,

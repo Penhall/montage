@@ -92,12 +92,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
 # ── Token generation ──────────────────────────────────────────────────
 
 
-def create_token(user_id: str, email: str) -> str:
+def create_token(user_id: str, email: str, is_admin: bool = False) -> str:
     """Generate a JWT for the given user."""
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "email": email,
+        "is_admin": is_admin,
         "iat": now,
         "exp": now.timestamp() + settings.jwt_expire_minutes * 60,
     }

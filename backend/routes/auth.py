@@ -43,18 +43,20 @@ async def signup(body: dict) -> dict:
     password_hash = _bcrypt.hashpw(
         password.encode(), _bcrypt.gensalt()
     ).decode()
+    is_admin = body.get("is_admin", False)
     user = await insert("users", {
         "email": email,
         "password_hash": password_hash,
         "name": body.get("name", email.split("@")[0]),
+        "is_admin": is_admin,
     })
 
-    token = create_token(str(user["id"]), email)
-    logger.info("User signed up: %s", email)
+    token = create_token(str(user["id"]), email, user.get("is_admin", False))
+    logger.info("User signed up: %s (admin=%s)", email, user.get("is_admin"))
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user": {"id": str(user["id"]), "email": email, "tier": user["tier"]},
+        "user": {"id": str(user["id"]), "email": email, "tier": user["tier"], "is_admin": user.get("is_admin", False)},
     }
 
 
@@ -83,10 +85,10 @@ async def login(body: dict) -> dict:
             detail="Invalid credentials",
         )
 
-    token = create_token(str(user["id"]), email)
+    token = create_token(str(user["id"]), email, user.get("is_admin", False))
     logger.info("User logged in: %s", email)
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user": {"id": str(user["id"]), "email": email, "tier": user["tier"]},
+        "user": {"id": str(user["id"]), "email": email, "tier": user["tier"], "is_admin": user.get("is_admin", False)},
     }

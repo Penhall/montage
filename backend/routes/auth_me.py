@@ -36,6 +36,7 @@ async def get_me(request: Request) -> MeResponse:
     email = user.get("email")
     tier = UserTier(user.get("tier", "free"))
     videos_this_month = user.get("videos_this_month", 0)
+    is_admin = user.get("is_admin", False)
 
     return MeResponse(
         id=user_id,
@@ -43,4 +44,5 @@ async def get_me(request: Request) -> MeResponse:
         tier=tier,
         videos_this_month=videos_this_month,
         videos_limit=TIER_LIMITS.get(tier, 3),
+        is_admin=is_admin,
     )

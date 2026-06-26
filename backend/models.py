@@ -122,6 +122,7 @@ class MeResponse(BaseModel):
     tier: UserTier = UserTier.free
     videos_this_month: int = 0
     videos_limit: int = 3
+    is_admin: bool = False
 
 
 class JobSummary(BaseModel):
