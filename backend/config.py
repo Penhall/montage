@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://authenticator:montage_local_dev@localhost:5432/montage"
 
     # -- Auth --
-    jwt_secret: str = "montage_jwt_secret_dev_only"
+    jwt_secret: str = "1d1f375a5eba92c8b6fe8da3443d9b0b617b9d32929520ed724a3fba6b8275c0"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440  # 24 hours
 
