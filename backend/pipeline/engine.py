@@ -1,7 +1,7 @@
 """PipelineEngine — orchestrates all pipeline stages.
 
 Called as a FastAPI BackgroundTask when a new job is created.
-Each stage updates the job's status and progress in the database.
+Each stage updates the job's status and progress in PostgreSQL.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.config import settings
-from backend.db import get_admin
+from backend.db import fetch_one, update
 from backend.models import JobStatus
 from backend.pipeline.images import gather_images
 from backend.pipeline.render import render_video
@@ -38,7 +38,6 @@ class PipelineEngine:
     UPLOAD_RANGE = (95, 100)
 
     def __init__(self) -> None:
-        self._admin = get_admin()
         self._tmp_root: Path = settings.tmp_root
         self._job_id: str = ""
         self._user_id: str = ""
@@ -81,7 +80,7 @@ class PipelineEngine:
             )
             # Store script JSON in DB
             script_json = json.dumps(script)
-            self._admin.table("montage_jobs").update({"script": script_json}).eq("id", job_id).execute()
+            await update("jobs", id_=job_id, data={"script": script_json})
             scene_count = len(script.get("scenes", []))
             print(f"[Pipeline] Script generated: {scene_count} scenes, title='{script.get('title', '')}'")
             await self._set_progress(self.SCRIPT_RANGE[1])
@@ -137,11 +136,10 @@ class PipelineEngine:
 
             # ── Mark completed ────────────────────────────────────────
             await self._set_status(JobStatus.completed, 100)
-            # Update result_path with the video's storage path
-            self._admin.table("montage_jobs").update({
+            await update("jobs", id_=job_id, data={
                 "result_path": video_row.get("storage_path"),
                 "duration_s": duration_s,
-            }).eq("id", job_id).execute()
+            })
 
             print(f"[Pipeline] Job {job_id} COMPLETED successfully!")
             logger.info("Pipeline COMPLETE: job %s", job_id)
@@ -159,18 +157,11 @@ class PipelineEngine:
 
     async def _load_job(self) -> None:
         """Load job params and user_id from the database."""
-        result = (
-            self._admin.table("montage_jobs")
-            .select("user_id, params")
-            .eq("id", self._job_id)
-            .limit(1)
-            .execute()
-        )
-        if not result.data:
+        row = await fetch_one("jobs", eq_column="id", eq_value=self._job_id)
+        if row is None:
             raise ValueError(f"Job {self._job_id} not found in database")
 
-        row = result.data[0]
-        self._user_id = row["user_id"]
+        self._user_id = str(row["user_id"])
         params_raw = row.get("params", "{}")
         if isinstance(params_raw, str):
             self._params = json.loads(params_raw)
@@ -186,16 +177,16 @@ class PipelineEngine:
         error: str | None = None,
     ) -> None:
         """Update the job's status (and optionally progress + error)."""
-        update: dict = {
+        data: dict = {
             "status": status.value,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         if progress is not None:
-            update["progress"] = progress
+            data["progress"] = progress
         if error is not None:
-            update["error"] = error
+            data["error"] = error
 
-        self._admin.table("montage_jobs").update(update).eq("id", self._job_id).execute()
+        await update("jobs", id_=self._job_id, data=data)
         status_msg = f"[{status.value.upper()}] progress={progress}%"
         if error:
             status_msg += f" error={error[:100]}"
@@ -203,10 +194,10 @@ class PipelineEngine:
 
     async def _set_progress(self, progress: int) -> None:
         """Update just the progress field."""
-        self._admin.table("montage_jobs").update({
+        await update("jobs", id_=self._job_id, data={
             "progress": progress,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", self._job_id).execute()
+        })
         print(f"[Pipeline] Progress: {progress}%")
 
     def _compute_duration(self, script: dict) -> int:

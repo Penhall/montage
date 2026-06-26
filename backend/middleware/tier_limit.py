@@ -6,7 +6,6 @@ Exempts pro and enterprise tiers from rate checks.
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timezone
 
@@ -14,7 +13,7 @@ from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
 
-from backend.db import get_admin
+from backend.db import fetch_one, get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -46,44 +45,33 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
 
     async def _check_limit(self, user_id: str) -> None:
         """Check and optionally block based on tier."""
-        admin = get_admin()
+        pool = await get_pool()
 
-        # Fetch tier record
-        result = admin.table("montage_user_tiers").select("*").eq("user_id", user_id).limit(1).execute()
-        rows = result.data
-        if not rows:
-            logger.warning("No tier record for user %s — using free limits", user_id)
+        # Fetch user tier from users table
+        user = await fetch_one("users", eq_column="id", eq_value=user_id)
+        if user is None:
+            logger.warning("No user record for %s — allowing", user_id)
             return
 
-        tier_data = rows[0]
-        tier: str = tier_data.get("tier", "free")
+        tier: str = user.get("tier", "free")
         limit = TIER_LIMITS.get(tier, 3)
 
         if limit >= 9999:
             return  # unlimited tier
 
-        # Count jobs this month
-        reset_at = tier_data.get("reset_at")
+        # Count videos created after reset_at
         now = datetime.now(timezone.utc)
+        reset_at = user.get("reset_at") or now
+        if isinstance(reset_at, str):
+            reset_at = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
 
-        # Parse reset_at
-        if reset_at:
-            if isinstance(reset_at, str):
-                reset_at_dt = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
-            else:
-                reset_at_dt = reset_at
-        else:
-            reset_at_dt = now
-
-        # Count montage_videos created after the reset date
-        count_result = (
-            admin.table("montage_videos")
-            .select("id", count="exact")
-            .eq("user_id", user_id)
-            .gte("created_at", reset_at_dt.isoformat())
-            .execute()
+        row = await pool.fetchrow(
+            "SELECT COUNT(*) as count FROM videos "
+            "WHERE user_id = $1 AND created_at >= $2",
+            user_id,
+            reset_at.isoformat(),
         )
-        count = count_result.count or 0
+        count = row["count"] if row else 0
 
         if count >= limit:
             logger.warning("User %s hit tier limit: %d/%d", user_id, count, limit)

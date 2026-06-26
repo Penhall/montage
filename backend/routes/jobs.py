@@ -1,10 +1,4 @@
-"""CRUD endpoints for /api/jobs.
-
-- POST /api/jobs   — create a new job (triggers pipeline in background)
-- GET  /api/jobs   — list user's jobs (summary)
-- GET  /api/jobs/{id} — full job detail
-- DELETE /api/jobs/{id} — cancel a pending job
-"""
+"""CRUD endpoints for /api/jobs."""
 
 from __future__ import annotations
 
@@ -14,8 +8,14 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
-from backend.db import fetch_many, fetch_one, get_admin
-from backend.models import CreateJobRequest, CreateJobResponse, JobDetail, JobStatus, JobSummary
+from backend.db import delete, fetch_many, fetch_one, insert, update
+from backend.models import (
+    CreateJobRequest,
+    CreateJobResponse,
+    JobDetail,
+    JobStatus,
+    JobSummary,
+)
 from backend.pipeline.engine import PipelineEngine
 
 logger = logging.getLogger(__name__)
@@ -23,43 +23,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/api/jobs", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
+@router.post(
+    "/api/jobs",
+    response_model=CreateJobResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Jobs"],
+)
 async def create_job(
     body: CreateJobRequest,
     request: Request,
     background_tasks: BackgroundTasks,
 ) -> CreateJobResponse:
-    """Create a new video generation job.
-
-    The pipeline runs as a FastAPI BackgroundTask.
-    """
+    """Create a new video generation job. Pipeline runs in background."""
     user_id: str = request.state.user_id
-    admin = get_admin()
-
-    params = body.model_dump()
     now = datetime.now(timezone.utc).isoformat()
 
-    row = (
-        admin.table("montage_jobs")
-        .insert({
-            "user_id": user_id,
-            "status": JobStatus.pending.value,
-            "params": json.dumps(params),
-            "progress": 0,
-            "created_at": now,
-            "updated_at": now,
-        })
-        .execute()
-    )
+    params = body.model_dump()
+    job = await insert("jobs", {
+        "user_id": user_id,
+        "status": JobStatus.pending.value,
+        "params": json.dumps(params),
+        "progress": 0,
+        "created_at": now,
+        "updated_at": now,
+    })
 
-    if not row.data:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create job",
-        )
-
-    job = row.data[0]
-    job_id: str = job["id"]
+    job_id: str = str(job["id"])
 
     # Kick off pipeline in background
     engine = PipelineEngine()
@@ -75,12 +64,11 @@ async def list_jobs(request: Request) -> list[JobSummary]:
     user_id: str = request.state.user_id
 
     rows = await fetch_many(
-        "montage_jobs",
+        "jobs",
         eq_column="user_id",
         eq_value=user_id,
         order_column="created_at",
         order_desc=True,
-        admin=True,
     )
 
     result: list[JobSummary] = []
@@ -92,7 +80,7 @@ async def list_jobs(request: Request) -> list[JobSummary]:
         created = _parse_dt(r.get("created_at"))
         result.append(
             JobSummary(
-                id=r["id"],
+                id=str(r["id"]),
                 status=JobStatus(r.get("status", "pending")),
                 progress=r.get("progress", 0),
                 title=title,
@@ -107,31 +95,37 @@ async def get_job(job_id: str, request: Request) -> JobDetail:
     """Return full job detail."""
     user_id: str = request.state.user_id
 
-    row = await fetch_one(
-        "montage_jobs",
-        eq_column="id",
-        eq_value=job_id,
-        admin=True,
-    )
+    row = await fetch_one("jobs", eq_column="id", eq_value=job_id)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    if row["user_id"] != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
+        )
+    if str(row["user_id"]) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
 
     return _row_to_job_detail(row)
 
 
-@router.delete("/api/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Jobs"])
+@router.delete(
+    "/api/jobs/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Jobs"],
+)
 async def delete_job(job_id: str, request: Request) -> None:
     """Cancel (delete) a job that is still pending."""
     user_id: str = request.state.user_id
-    admin = get_admin()
 
-    row = await fetch_one("montage_jobs", eq_column="id", eq_value=job_id, admin=True)
+    row = await fetch_one("jobs", eq_column="id", eq_value=job_id)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-    if row["user_id"] != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
+        )
+    if str(row["user_id"]) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
 
     status_val = row.get("status", "")
     if status_val not in ("pending", "researching", "scripting"):
@@ -140,25 +134,21 @@ async def delete_job(job_id: str, request: Request) -> None:
             detail=f"Cannot delete job in status '{status_val}'",
         )
 
-    admin.table("montage_jobs").delete().eq("id", job_id).execute()
+    await delete("jobs", id_=job_id)
     logger.info("Job %s deleted by user %s", job_id, user_id)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
+
 
 def _row_to_job_detail(row: dict) -> JobDetail:
     params = row.get("params", {})
     if isinstance(params, str):
         params = json.loads(params)
 
-    script_str: str | None = row.get("script")
-    if script_str and isinstance(script_str, str):
-        # keep as string — the frontend parses it
-        pass
-
     return JobDetail(
-        id=row["id"],
-        user_id=row["user_id"],
+        id=str(row["id"]),
+        user_id=str(row["user_id"]),
         status=JobStatus(row.get("status", "pending")),
         params=params,
         script=row.get("script"),

@@ -1,5 +1,4 @@
 """Application configuration via pydantic-settings.
-
 All env vars are read from a .env file at startup.
 See .env.example for the full list.
 """
@@ -21,34 +20,38 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── Supabase ──────────────────────────────────────────────────────
-    supabase_url: str = "https://qzljsendvthfetrntwab.supabase.co"
-    supabase_service_role_key: str = ""
-    supabase_anon_key: str = ""
+    # -- Database --
+    database_url: str = "postgresql://authenticator:montage_local_dev@localhost:5432/montage"
 
-    # ── DeepSeek ──────────────────────────────────────────────────────
+    # -- Auth --
+    jwt_secret: str = "montage_jwt_secret_dev_only"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440  # 24 hours
+
+    # -- DeepSeek --
     deepseek_api_key: str = ""
 
-    # ── Image APIs ────────────────────────────────────────────────────
+    # -- Image APIs --
     pexels_api_key: str = ""
     pixabay_api_key: str = ""
     unsplash_access_key: str = ""
 
-    # ── Server ────────────────────────────────────────────────────────
+    # -- Server --
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
-    # ── Stripe (stub) ─────────────────────────────────────────────────
-    stripe_secret_key: str = "sk_test_placeholder"
-    stripe_webhook_secret: str = "whsec_placeholder"
+    # -- Stripe (stub) --
+    stripe_secret_key: str = "***"
+    stripe_webhook_secret: str = "***"
 
-    # ── Logging ───────────────────────────────────────────────────────
+    # -- Logging --
     log_level: str = "INFO"
 
-    # ── Paths ─────────────────────────────────────────────────────────
+    # -- Paths --
     backend_root: Path = Path(__file__).parent.resolve()
     tmp_root: Path = backend_root / "tmp"
     remotion_root: Path = backend_root.parent / "remotion"
+    videos_dir: Path = backend_root.parent / "data" / "videos"
 
 
 settings = Settings()  # single importable instance

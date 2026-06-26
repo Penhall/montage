@@ -22,32 +22,20 @@ TIER_LIMITS = {
 
 @router.get("/api/me", response_model=MeResponse, tags=["Auth"])
 async def get_me(request: Request) -> MeResponse:
-    """Return the authenticated user's profile and tier info.
-
-    Requires a valid Supabase JWT in the Authorization header.
-    """
+    """Return the authenticated user's profile and tier info."""
     user_id: str = request.state.user_id
 
-    # Fetch from Supabase Auth user metadata (email)
-    email: str | None = None
-    payload = getattr(request.state, "token_payload", {})
-    if payload:
-        email = payload.get("email") or payload.get("user_metadata", {}).get("email")
+    # Fetch user from local users table (tier info is inline)
+    user = await fetch_one("users", eq_column="id", eq_value=user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
 
-    # Fetch tier record
-    tier_data = await fetch_one(
-        "montage_user_tiers",
-        eq_column="user_id",
-        eq_value=user_id,
-        admin=True,
-    )
-
-    if tier_data:
-        tier = UserTier(tier_data.get("tier", "free"))
-        videos_this_month = tier_data.get("videos_this_month", 0)
-    else:
-        tier = UserTier.free
-        videos_this_month = 0
+    email = user.get("email")
+    tier = UserTier(user.get("tier", "free"))
+    videos_this_month = user.get("videos_this_month", 0)
 
     return MeResponse(
         id=user_id,

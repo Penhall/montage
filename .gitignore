@@ -17,6 +17,8 @@ build/
 
 # Temp
 backend/tmp/
+data/
+docker/data/
 *.log
 
 # IDE
