@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.montage.app",
   "build": {
-    "frontendDist": "out",
+    "frontendDist": "../out",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
@@ -44,19 +44,7 @@
   },
   "plugins": {
     "shell": {
-      "open": true,
-      "scope": [
-        {
-          "name": "python-backend",
-          "cmd": "python3",
-          "args": true
-        },
-        {
-          "name": "ffmpeg",
-          "cmd": "ffmpeg",
-          "args": true
-        }
-      ]
+      "open": true
     }
   }
 }

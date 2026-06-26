@@ -37,6 +37,26 @@ export default function DashboardPage() {
   const [tierUsed, setTierUsed] = useState(0);
   const [tierLimit, setTierLimit] = useState(3);
 
+  const tauriJobToVideo = useCallback((job: MontageJob): Video => {
+    const status: Video["status"] =
+      job.status === "done"
+        ? "done"
+        : job.status === "failed"
+          ? "failed"
+          : "processing";
+
+    return {
+      id: job.id,
+      title: job.title,
+      status,
+      duration: "0s",
+      platform: "Desktop",
+      style: "Local",
+      created_at: job.created_at,
+      progress: job.progress,
+    };
+  }, []);
+
   // ── Tauri mode: auth from context ──────────────────────────────────
   useEffect(() => {
     if (!isTauriMode) return;
@@ -75,22 +95,7 @@ export default function DashboardPage() {
         // Convert to Video format for the gallery
         const videoItems: Video[] = jobs
           .filter((j) => j.status === "done")
-          .map((j) => ({
-            id: j.id,
-            job_id: j.id,
-            user_id: tauriUser.id,
-            title: j.title,
-            status: j.status,
-            storage_path: j.result_path || "",
-            thumbnail_path: undefined,
-            duration_s: 0,
-            platform_profile: "",
-            style_playbook: "",
-            size_bytes: 0,
-            created_at: j.created_at,
-            expires_at: undefined,
-            download_url: j.result_path || "",
-          }));
+          .map(tauriJobToVideo);
         setVideos(videoItems);
         setTierUsed(tauriUser.videos_this_month);
       } else {
@@ -112,7 +117,7 @@ export default function DashboardPage() {
     } finally {
       setVideosLoading(false);
     }
-  }, [isTauriMode, tauriUser, router]);
+  }, [isTauriMode, tauriUser, router, tauriJobToVideo]);
 
   useEffect(() => {
     if (!loading && (user || tauriUser)) {
@@ -192,17 +197,8 @@ export default function DashboardPage() {
   };
 
   const displayUser = user || (tauriUser ? { email: tauriUser.email } : null);
-  const allItems = isTauriMode
-    ? [
-        ...tauriJobs.map((j) => ({
-          id: j.id,
-          status: j.status === "done" ? "done" : j.status === "failed" ? "error" : "processing",
-          title: j.title,
-          duration_s: 0,
-          storage_path: j.result_path || "",
-          created_at: j.created_at,
-        })),
-      ]
+  const allItems: Video[] = isTauriMode
+    ? tauriJobs.map(tauriJobToVideo)
     : videos;
 
   if (loading) {
@@ -300,18 +296,10 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {allItems.map((video: { id: string; status: string; title: string; created_at: string; storage_path?: string; duration_s?: number }) => (
+              {allItems.map((video) => (
                 <VideoCard
                   key={video.id}
-                  video={{
-                    id: video.id,
-                    title: video.title,
-                    status: video.status,
-                    created_at: video.created_at,
-                    storage_path: video.storage_path || "",
-                    duration_s: video.duration_s || 0,
-                    download_url: video.storage_path || "",
-                  }}
+                  video={video}
                   onDownload={handleDownload}
                   onRetry={handleRetry}
                 />

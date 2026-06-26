@@ -372,12 +372,13 @@ fn run_pipeline(
         .unwrap_or_default();
 
     // Run in background
+    let pipeline_job_id = job_id.clone();
     std::thread::spawn(move || {
         let output = std::process::Command::new("python3")
             .arg("-m")
             .arg("backend.pipeline.engine")
             .arg("--job-id")
-            .arg(&job_id)
+            .arg(&pipeline_job_id)
             .current_dir(backend_path.parent().unwrap_or(&backend_path))
             .output();
 
@@ -385,12 +386,12 @@ fn run_pipeline(
             Ok(o) => {
                 log::info!(
                     "Pipeline {} completed: {}",
-                    job_id,
+                    pipeline_job_id,
                     String::from_utf8_lossy(&o.stdout)
                 );
             }
             Err(e) => {
-                log::error!("Pipeline {} failed: {}", job_id, e);
+                log::error!("Pipeline {} failed: {}", pipeline_job_id, e);
             }
         }
     });
