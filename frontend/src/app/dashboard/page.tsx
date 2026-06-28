@@ -10,6 +10,7 @@ import VideoCard from "@/components/VideoCard";
 import TierBadge from "@/components/TierBadge";
 import LogoutButton from "@/components/LogoutButton";
 import { UserIcon, SpinnerIcon } from "@/components/IconComponents";
+import ProgressOverlay from "@/components/ProgressOverlay";
 import { createJob, getVideos, getVideoDownloadUrl, type Video } from "@/lib/api";
 import { getUser } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
@@ -34,6 +35,7 @@ export default function DashboardPage() {
   const [tier, setTier] = useState<"free" | "pro">("free");
   const [tierUsed, setTierUsed] = useState(0);
   const [tierLimit, setTierLimit] = useState(3);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   const tauriJobToVideo = useCallback((job: MontageJob): Video => {
     const status: Video["status"] =
@@ -170,7 +172,8 @@ export default function DashboardPage() {
         tauriRunPipeline(job.id).catch(() => {});
         fetchItems();
       } else {
-        await createJob(params);
+        const job = await createJob(params);
+        setActiveJobId(job.id);
         toast.success("Video job created");
         fetchItems();
       }
@@ -318,6 +321,14 @@ export default function DashboardPage() {
           )}
         </section>
       </div>
+
+      {/* Progress Overlay */}
+      {activeJobId && (
+        <ProgressOverlay
+          jobId={activeJobId}
+          onClose={() => setActiveJobId(null)}
+        />
+      )}
     </div>
   );
 }

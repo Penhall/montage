@@ -35,6 +35,8 @@ CREATE TABLE jobs (
     params JSONB NOT NULL,
     script TEXT,
     progress INT NOT NULL DEFAULT 0,
+    progress_message TEXT,
+    stage_started_at TIMESTAMPTZ,
     result_path TEXT,
     thumbnail_path TEXT,
     duration_s INT,

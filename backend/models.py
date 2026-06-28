@@ -65,6 +65,8 @@ class Job(BaseModel):
     params: dict[str, Any] = {}
     script: str | None = None
     progress: int = 0
+    progress_message: str | None = None
+    stage_started_at: datetime | None = None
     result_path: str | None = None
     thumbnail_path: str | None = None
     duration_s: int | None = None
@@ -129,6 +131,8 @@ class JobSummary(BaseModel):
     id: str
     status: JobStatus
     progress: int
+    progress_message: str | None = None
+    stage_started_at: datetime | None = None
     title: str
     created_at: datetime | None = None
 

@@ -34,6 +34,8 @@ export interface Job {
   platform: string;
   style: string;
   progress: number;
+  progress_message?: string;
+  stage_started_at?: string;
   stage: string;
   created_at: string;
   video_id?: string;
@@ -52,6 +54,8 @@ export interface Video {
   created_at: string;
   stage?: string;
   progress?: number;
+  progress_message?: string;
+  stage_started_at?: string;
 }
 
 export async function createJob(params: CreateJobParams): Promise<Job> {

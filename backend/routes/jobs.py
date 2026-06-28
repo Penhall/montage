@@ -78,11 +78,14 @@ async def list_jobs(request: Request) -> list[JobSummary]:
             params = json.loads(params)
         title = params.get("title", "Untitled")
         created = _parse_dt(r.get("created_at"))
+        stage_started = _parse_dt(r.get("stage_started_at"))
         result.append(
             JobSummary(
                 id=str(r["id"]),
                 status=JobStatus(r.get("status", "pending")),
                 progress=r.get("progress", 0),
+                progress_message=r.get("progress_message"),
+                stage_started_at=stage_started,
                 title=title,
                 created_at=created,
             )
@@ -153,6 +156,8 @@ def _row_to_job_detail(row: dict) -> JobDetail:
         params=params,
         script=row.get("script"),
         progress=row.get("progress", 0),
+        progress_message=row.get("progress_message"),
+        stage_started_at=_parse_dt(row.get("stage_started_at")),
         result_path=row.get("result_path"),
         thumbnail_path=row.get("thumbnail_path"),
         duration_s=row.get("duration_s"),

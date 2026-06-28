@@ -51,6 +51,9 @@ export default function VideoCard({ video, onDownload, onRetry }: VideoCardProps
             <JobProgress
               stage={video.stage || "processing"}
               progress={video.progress || 0}
+              progressMessage={video.progress_message}
+              stageStartedAt={video.stage_started_at}
+              createdAt={video.created_at}
             />
           </div>
         )}

@@ -37,6 +37,19 @@ class PipelineEngine:
     RENDER_RANGE = (75, 95)
     UPLOAD_RANGE = (95, 100)
 
+    # ── Human-readable stage labels ────────────────────────────────────
+    STAGE_LABELS: dict[JobStatus, str] = {
+        JobStatus.pending: "Preparing",
+        JobStatus.researching: "Researching topic",
+        JobStatus.scripting: "Writing script",
+        JobStatus.gathering_images: "Gathering images",
+        JobStatus.generating_tts: "Generating audio",
+        JobStatus.rendering: "Rendering video",
+        JobStatus.uploading: "Saving video",
+        JobStatus.completed: "Complete",
+        JobStatus.failed: "Failed",
+    }
+
     def __init__(self) -> None:
         self._tmp_root: Path = settings.tmp_root
         self._job_id: str = ""
@@ -61,16 +74,20 @@ class PipelineEngine:
             await self._load_job()
 
             # ── Stage 1: Research ─────────────────────────────────────
-            await self._set_status(JobStatus.researching, 0)
+            await self._stage_start(JobStatus.researching, 0,
+                                    "Searching the web for relevant content...")
             research = await run_research(
                 topic=self._params.get("topic", ""),
                 max_results=5,
             )
-            print(f"[Pipeline] Research complete: {len(research.key_points)} key points")
-            await self._set_progress(self.RESEARCH_RANGE[1])
+            kp_count = len(research.key_points)
+            print(f"[Pipeline] Research complete: {kp_count} key points")
+            await self._set_progress_msg(self.RESEARCH_RANGE[1],
+                                         f"Found {kp_count} key points")
 
             # ── Stage 2: Script ───────────────────────────────────────
-            await self._set_status(JobStatus.scripting, self.SCRIPT_RANGE[0])
+            await self._stage_start(JobStatus.scripting, self.SCRIPT_RANGE[0],
+                                    "Writing video script with scene breakdown...")
             script = await generate_script(
                 topic=self._params.get("topic", ""),
                 research=research,
@@ -83,30 +100,38 @@ class PipelineEngine:
             await update("jobs", id_=job_id, data={"script": script_json})
             scene_count = len(script.get("scenes", []))
             print(f"[Pipeline] Script generated: {scene_count} scenes, title='{script.get('title', '')}'")
-            await self._set_progress(self.SCRIPT_RANGE[1])
+            await self._set_progress_msg(self.SCRIPT_RANGE[1],
+                                         f"Script ready: {scene_count} scenes, {self._compute_duration(script)}s")
 
             # ── Stage 3: Images ───────────────────────────────────────
-            await self._set_status(JobStatus.gathering_images, self.IMAGES_RANGE[0])
+            await self._stage_start(JobStatus.gathering_images, self.IMAGES_RANGE[0],
+                                    f"Searching images for {scene_count} scenes...")
             image_mappings = await gather_images(
                 scenes=script.get("scenes", []),
                 job_id=job_id,
                 tmp_root=self._tmp_root,
             )
-            print(f"[Pipeline] Images gathered: {len(image_mappings)}/{scene_count}")
-            await self._set_progress(self.IMAGES_RANGE[1])
+            img_count = len(image_mappings)
+            print(f"[Pipeline] Images gathered: {img_count}/{scene_count}")
+            await self._set_progress_msg(self.IMAGES_RANGE[1],
+                                         f"Images: {img_count}/{scene_count} found")
 
             # ── Stage 4: TTS ──────────────────────────────────────────
-            await self._set_status(JobStatus.generating_tts, self.TTS_RANGE[0])
+            await self._stage_start(JobStatus.generating_tts, self.TTS_RANGE[0],
+                                    f"Generating voiceover for {scene_count} slides...")
             audio_mappings = await generate_tts(
                 scenes=script.get("scenes", []),
                 job_id=job_id,
                 tmp_root=self._tmp_root,
             )
-            print(f"[Pipeline] TTS generated: {len(audio_mappings)}/{scene_count} files")
-            await self._set_progress(self.TTS_RANGE[1])
+            audio_count = len(audio_mappings)
+            print(f"[Pipeline] TTS generated: {audio_count}/{scene_count} files")
+            await self._set_progress_msg(self.TTS_RANGE[1],
+                                         f"Audio: {audio_count}/{scene_count} slides voiced")
 
             # ── Stage 5: Render ───────────────────────────────────────
-            await self._set_status(JobStatus.rendering, self.RENDER_RANGE[0])
+            await self._stage_start(JobStatus.rendering, self.RENDER_RANGE[0],
+                                    f"Rendering {scene_count}-scene video with Remotion...")
             output_path = await render_video(
                 script=script,
                 image_mappings=image_mappings,
@@ -116,10 +141,12 @@ class PipelineEngine:
             )
             duration_s = self._compute_duration(script)
             print(f"[Pipeline] Render complete: {output_path}, ~{duration_s}s")
-            await self._set_progress(self.RENDER_RANGE[1])
+            await self._set_progress_msg(self.RENDER_RANGE[1],
+                                         f"Render complete: {duration_s}s video")
 
             # ── Stage 6: Upload ───────────────────────────────────────
-            await self._set_status(JobStatus.uploading, self.UPLOAD_RANGE[0])
+            await self._stage_start(JobStatus.uploading, self.UPLOAD_RANGE[0],
+                                    "Saving final video to storage...")
             thumbnail_path = self._find_thumbnail(image_mappings)
             video_row = await upload_video(
                 video_path=output_path,
@@ -132,13 +159,15 @@ class PipelineEngine:
                 style_playbook=self._params.get("style", "clean_professional"),
             )
             print(f"[Pipeline] Upload complete: video {video_row['id']}")
-            await self._set_progress(self.UPLOAD_RANGE[1])
+            await self._set_progress_msg(self.UPLOAD_RANGE[1],
+                                         "Video saved successfully")
 
             # ── Mark completed ────────────────────────────────────────
             await self._set_status(JobStatus.completed, 100)
             await update("jobs", id_=job_id, data={
                 "result_path": video_row.get("storage_path"),
                 "duration_s": duration_s,
+                "progress_message": "Complete!",
             })
 
             print(f"[Pipeline] Job {job_id} COMPLETED successfully!")
@@ -148,6 +177,9 @@ class PipelineEngine:
             logger.exception("Pipeline failed for job %s", job_id)
             print(f"[Pipeline] Job {job_id} FAILED: {exc}")
             await self._set_status(JobStatus.failed, progress=None, error=str(exc))
+            await update("jobs", id_=job_id, data={
+                "progress_message": f"Failed: {str(exc)[:200]}",
+            })
 
         finally:
             # Cleanup temp files
@@ -169,6 +201,24 @@ class PipelineEngine:
             self._params = params_raw
 
         logger.info("Loaded job %s for user %s", self._job_id, self._user_id)
+
+    async def _stage_start(
+        self,
+        status: JobStatus,
+        progress: int,
+        message: str,
+    ) -> None:
+        """Record stage start with timestamp and progress message."""
+        data: dict = {
+            "status": status.value,
+            "progress": progress,
+            "stage_started_at": datetime.now(timezone.utc).isoformat(),
+            "progress_message": message,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await update("jobs", id_=self._job_id, data=data)
+        label = self.STAGE_LABELS.get(status, status.value)
+        print(f"[Pipeline] {label} (progress={progress}%): {message}")
 
     async def _set_status(
         self,
@@ -199,6 +249,15 @@ class PipelineEngine:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
         print(f"[Pipeline] Progress: {progress}%")
+
+    async def _set_progress_msg(self, progress: int, message: str) -> None:
+        """Update progress + message in a single call."""
+        await update("jobs", id_=self._job_id, data={
+            "progress": progress,
+            "progress_message": message,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        print(f"[Pipeline] Progress: {progress}% — {message}")
 
     def _compute_duration(self, script: dict) -> int:
         """Compute total video duration from scene durations."""
