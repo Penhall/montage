@@ -140,6 +140,7 @@ class JobDetail(Job):
 class VideoSummary(BaseModel):
     id: str
     title: str
+    status: str = "done"  # Videos only exist in DB after successful rendering
     thumbnail_url: str | None = None
     duration_s: int | None = None
     created_at: datetime | None = None

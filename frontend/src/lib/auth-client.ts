@@ -2,7 +2,7 @@
 
 const TOKEN_COOKIE = "montage_token";
 const TOKEN_LOCALSTORAGE = "montage_token_backup";
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 // ── Types ───────────────────────────────────────────────────────────
 

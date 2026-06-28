@@ -36,13 +36,6 @@ async def render_video(
 
     logger.info("Render stage: starting Remotion render for job %s", job_id)
 
-    # Build render props
-    render_props = _build_render_props(script, image_mappings, audio_mappings, job_id, tmp_root)
-
-    # Write props to a temp JSON file (avoids shell escaping issues)
-    props_path = tmp_root / job_id / "render_props.json"
-    props_path.write_text(json.dumps(render_props), encoding="utf-8")
-
     # Check if the Remotion project exists
     remotion_root = settings.remotion_root
     if not remotion_root.exists():
@@ -53,6 +46,17 @@ async def render_video(
     if not remotion_pkg.exists():
         logger.warning("No package.json in remotion directory — creating stub MP4")
         return _create_stub_video(output_path)
+
+    # Copy assets into Remotion's public/ dir so staticFile() can resolve them
+    public_dir = remotion_root / "public" / job_id
+    _copy_assets_to_public(job_id, tmp_root, public_dir)
+
+    # Build render props with relative paths (relative to public/)
+    render_props = _build_render_props(script, image_mappings, audio_mappings, job_id)
+
+    # Write props to a temp JSON file (avoids shell escaping issues)
+    props_path = tmp_root / job_id / "render_props.json"
+    props_path.write_text(json.dumps(render_props), encoding="utf-8")
 
     # If node_modules doesn't exist, try npm install first
     node_modules = remotion_root / "node_modules"
@@ -69,20 +73,21 @@ async def render_video(
             logger.warning("npm install failed: %s", npm_stderr.decode()[:500])
 
     # Run Remotion render
+    # Syntax: remotion render <composition> [output]  (cwd = project dir)
     cmd = [
         "npx",
-        "--yes",
         "remotion",
         "render",
-        str(remotion_root),
-        "--props", str(props_path),
-        "--output", str(output_path),
+        "AnimatedExplainer",
+        str(output_path),
+        f"--props={props_path}",
     ]
 
     logger.info("Running: %s", " ".join(str(c) for c in cmd))
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
+        cwd=str(remotion_root),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -110,51 +115,90 @@ async def render_video(
     return output_path
 
 
+def _copy_assets_to_public(job_id: str, tmp_root: Path, public_dir: Path) -> None:
+    """Copy image and audio assets into Remotion's public/ directory.
+
+    Remotion's staticFile() resolves paths relative to public/, so we copy
+    all scene assets there before rendering.
+    """
+    public_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Copy images
+    images_dir = tmp_root / job_id / "images"
+    if images_dir.exists():
+        dest_images = public_dir / "images"
+        dest_images.mkdir(parents=True, exist_ok=True)
+        for img_file in images_dir.iterdir():
+            if img_file.is_file():
+                shutil.copy2(img_file, dest_images / img_file.name)
+                logger.debug("Copied image: %s → %s", img_file.name, dest_images)
+
+    # Copy audio
+    audio_dir = tmp_root / job_id / "audio"
+    if audio_dir.exists():
+        dest_audio = public_dir / "audio"
+        dest_audio.mkdir(parents=True, exist_ok=True)
+        for aud_file in audio_dir.iterdir():
+            if aud_file.is_file():
+                shutil.copy2(aud_file, dest_audio / aud_file.name)
+                logger.debug("Copied audio: %s → %s", aud_file.name, dest_audio)
+
+    logger.info("Assets copied to public/%s (images=%d, audio=%d)",
+                job_id,
+                len(list((public_dir / "images").iterdir())) if (public_dir / "images").exists() else 0,
+                len(list((public_dir / "audio").iterdir())) if (public_dir / "audio").exists() else 0)
+
+
 def _build_render_props(
     script: dict,
     image_mappings: list[dict],
     audio_mappings: list[dict],
     job_id: str,
-    tmp_root: Path,
 ) -> dict:
-    """Build the props dict to pass to the Remotion composition."""
+    """Build the props dict matching AnimatedExplainerSchema.
+
+    Paths are relative to Remotion's public/ directory so staticFile() works.
+    """
     scenes = script.get("scenes", [])
     enriched_scenes = []
 
     for scene in scenes:
         scene_id = scene.get("scene_id", 0)
 
-        # Find matching image
-        image_path = None
+        # Build relative paths: <job_id>/images/scene_N.ext
+        imagePath = ""
         for img in image_mappings:
             if img.get("scene_id") == scene_id:
-                image_path = img.get("path")
+                abs_path = Path(img.get("path", ""))
+                imagePath = f"{job_id}/images/{abs_path.name}" if abs_path.name else ""
                 break
 
-        # Find matching audio
-        audio_path = None
+        audioPath = ""
         for aud in audio_mappings:
             if aud.get("scene_id") == scene_id:
-                audio_path = aud.get("path")
+                abs_path = Path(aud.get("path", ""))
+                audioPath = f"{job_id}/audio/{abs_path.name}" if abs_path.name else ""
                 break
 
         enriched_scenes.append({
             "scene_id": scene_id,
             "dialogue": scene.get("dialogue", ""),
-            "visual_prompt": scene.get("visual_prompt", ""),
             "duration_s": scene.get("duration_s", 4),
-            "image_path": image_path,
-            "audio_path": audio_path,
+            "imagePath": imagePath,
+            "audioPath": audioPath,
         })
 
+    editing = script.get("editing", {})
+    total_duration = sum(s.get("duration_s", 0) for s in enriched_scenes)
+
     return {
-        "job_id": job_id,
         "title": script.get("title", "Untitled"),
         "scenes": enriched_scenes,
-        "audio": script.get("audio", {}),
-        "editing": script.get("editing", {}),
-        "seo_keywords": script.get("seo_keywords", []),
-        "tmp_root": str(tmp_root / job_id),
+        "ctaText": editing.get("cta_text", "Follow for more!"),
+        "ctaOverlayAtS": editing.get("cta_overlay_at_s", max(10, total_duration - 15)),
+        "outputWidth": 1080,
+        "outputHeight": 1920,
+        "watermark": False,
     }
 
 
@@ -183,7 +227,6 @@ def _create_stub_video(output_path: Path) -> Path:
         subprocess.run(cmd, capture_output=True, timeout=30, check=False)
     except Exception as exc:
         logger.warning("FFmpeg stub creation failed: %s", exc)
-        # Create an even smaller placeholder
         output_path.write_bytes(b"\x00\x00\x00\x00")
 
     logger.info("Created stub video at %s", output_path)

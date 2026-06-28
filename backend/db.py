@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -12,6 +13,33 @@ from backend.config import settings
 logger = logging.getLogger(__name__)
 
 _pool: asyncpg.Pool | None = None
+
+
+# ── Value coercion ────────────────────────────────────────────────────
+
+def _coerce_value(value: Any) -> Any:
+    """Coerce values for asyncpg compatibility.
+
+    asyncpg does NOT auto-cast ISO-format strings to timestamp types —
+    they must be proper ``datetime.datetime`` objects.
+    """
+    if isinstance(value, str):
+        # Try ISO timestamp detection
+        if "T" in value and (value.endswith("Z") or "+" in value[10:]):
+            try:
+                cleaned = value.replace("Z", "+00:00")
+                return datetime.fromisoformat(cleaned)
+            except (ValueError, TypeError):
+                pass
+    return value
+
+
+def _coerce_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Apply _coerce_value to all values in a dict."""
+    return {k: _coerce_value(v) for k, v in data.items()}
+
+
+# ── Generic query helpers ────────────────────────────────────────────
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -37,9 +65,6 @@ async def close_pool() -> None:
         logger.info("asyncpg pool closed")
 
 
-# ── Generic query helpers ────────────────────────────────────────────
-
-
 async def fetch_one(
     table: str,
     eq_column: str,
@@ -49,7 +74,7 @@ async def fetch_one(
 ) -> dict[str, Any] | None:
     """Fetch a single row."""
     pool = await get_pool()
-    query = f'SELECT {columns} FROM {table} WHERE {eq_column} = $1 LIMIT 1'
+    query = f"SELECT {columns} FROM {table} WHERE {eq_column} = $1 LIMIT 1"
     row = await pool.fetchrow(query, eq_value)
     return dict(row) if row else None
 
@@ -88,6 +113,7 @@ async def fetch_many(
 async def insert(table: str, data: dict[str, Any]) -> dict[str, Any]:
     """Insert a row and return it."""
     pool = await get_pool()
+    data = _coerce_data(data)
     columns = list(data.keys())
     placeholders = [f"${i + 1}" for i in range(len(columns))]
     values = list(data.values())
@@ -108,6 +134,7 @@ async def update(
 ) -> dict[str, Any] | None:
     """Update a row by ID and return it."""
     pool = await get_pool()
+    data = _coerce_data(data)
     sets = [f"{col} = ${i + 1}" for i, col in enumerate(data.keys())]
     values = list(data.values()) + [id_]
     query = (
@@ -124,7 +151,6 @@ async def delete(table: str, id_: Any, id_column: str = "id") -> bool:
     pool = await get_pool()
     query = f"DELETE FROM {table} WHERE {id_column} = $1"
     result = await pool.execute(query, id_)
-    # execute() returns "DELETE N" string, parse it
     return "DELETE 1" in result
 
 

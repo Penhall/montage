@@ -196,28 +196,52 @@ async def _download_image(url: str, out_path: Path) -> Path:
 
 
 def _create_placeholder(out_path: Path, prompt: str) -> Path:
-    """Create a minimal placeholder image when all APIs fail."""
-    # Write a tiny valid JPEG (1x1 pixel) as placeholder
-    # Minimal JPEG bytes
+    """Create a placeholder image (1080x1920 solid color) using FFmpeg."""
+    import subprocess
+    
+    final_path = out_path.with_suffix(".jpg")
+    
+    # Use a deterministic color based on the prompt hash
+    colors = ["#1a1a2e", "#16213e", "#0f3460", "#533483", "#e94560"]
+    color_idx = hash(prompt) % len(colors)
+    bg_color = colors[color_idx]
+    
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", f"color=c={bg_color}:s=1080x1920:d=0.1",
+        "-frames:v", "1",
+        "-q:v", "3",
+        str(final_path),
+    ]
+    
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=10, check=False)
+        if final_path.exists() and final_path.stat().st_size > 100:
+            logger.debug("Created placeholder image (%dx%d) at %s", 1080, 1920, final_path)
+            return final_path
+    except Exception as exc:
+        logger.warning("FFmpeg placeholder creation failed: %s", exc)
+    
+    # Fallback: write minimal valid JPEG
     placeholder = (
         b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
         b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n"
         b"\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d"
         b"\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\xff\xc0\x00\x0b"
         b"\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f\x00\x00\x01\x05"
-        b"\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04"
+        b"\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04"
         b"\x05\x06\x07\x08\t\n\x0b\xff\xc4\x00\xb5\x10\x00\x02\x01\x03\x03\x02"
         b"\x04\x03\x05\x05\x04\x04\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x11"
         b"\x04\x12!1A\x06\x13Qa\x07\"q\x142\x81\x91\xa1\x08#B\xb1\xc1\x15R"
-        b"\xd1\xf0$Cbr\x82\xff\xc4\x00\x1f\x01\x01\x01\x01\x01\x01\x01\x01"
-        b"\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08"
+        b"\xd1\xf0$Cbr\x82\xff\xc4\x00\x1f\x01\x01\x01\x01\x01\x01\x01\x01\x01"
+        b"\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08"
         b"\t\n\x0b\xff\xc4\x00\x41\x11\x00\x02\x01\x02\x04\x03\x04\x08\x07\x08"
         b"\x07\x06\x05\x01\x00\x00\x01\x02\x03\x11\x04\x12!1\x05A\x06\x13Qa"
         b"\x07\"q\x142\x81\x91\xa1\x08#B\xb1\xc1\x15R\xd1\xf0$Cbr\x82"
-        b"\xff\xda\x00\x08\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        b"\xff\xda\x00\x08\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
         b"\xff\xd9"
     )
-    final_path = out_path.with_suffix(".jpg")
     final_path.write_bytes(placeholder)
-    logger.debug("Created placeholder image at %s", final_path)
+    logger.debug("Created fallback placeholder at %s", final_path)
     return final_path

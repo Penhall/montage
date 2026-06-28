@@ -1,6 +1,20 @@
 import { apiFetch } from "./api-client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// API_BASE kept for backward compat; api-client.ts now handles base URL
+
+// ── Value mappers (frontend form → backend enum) ──────────────────────
+
+const PLATFORM_MAP: Record<string, string> = {
+  "tiktok-9:16": "tiktok_9_16",
+  "youtube-16:9": "youtube_shorts",
+  "instagram-1:1": "instagram_reel",
+};
+
+const STYLE_MAP: Record<string, string> = {
+  "clean-professional": "clean_professional",
+  "flat-motion": "energetic",
+  "minimalist": "storytelling",
+};
 
 export interface CreateJobParams {
   pipeline: string;
@@ -41,9 +55,17 @@ export interface Video {
 }
 
 export async function createJob(params: CreateJobParams): Promise<Job> {
+  // Map frontend form values to backend enum values
+  const body = {
+    title: params.title,
+    topic: params.topic || params.title,
+    duration: parseInt(params.duration) || 60,
+    platform: PLATFORM_MAP[params.platform] || "tiktok_9_16",
+    style: STYLE_MAP[params.style] || "clean_professional",
+  };
   return apiFetch<Job>("/api/jobs", {
     method: "POST",
-    body: JSON.stringify(params),
+    body: JSON.stringify(body),
   });
 }
 

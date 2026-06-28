@@ -57,15 +57,25 @@ const SceneRenderer: React.FC<{
           overflow: "hidden",
         }}
       >
-        <Img
-          src={staticFile(imagePath)}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            transform: `scale(${scale})`,
-          }}
-        />
+        {imagePath ? (
+          <Img
+            src={staticFile(imagePath)}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              transform: `scale(${scale})`,
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              background: "linear-gradient(135deg, #1a1a2e, #16213e)",
+            }}
+          />
+        )}
       </div>
       {audioPath ? <Audio src={staticFile(audioPath)} /> : null}
       {/* Subtitle */}
@@ -152,7 +162,6 @@ const Watermark: React.FC<{ visible: boolean; totalFrames: number }> = ({
   const frame = useCurrentFrame();
   if (!visible) return null;
 
-  // Only show in last 5 seconds (150 frames)
   const appearFrame = Math.max(0, totalFrames - 150);
   const opacity = interpolate(
     frame,
@@ -244,10 +253,12 @@ export const AnimatedExplainer: React.FC<Props> = ({
         );
       })}
 
-      {/* CTA — appears at ctaFrame, stays until end */}
-      <Sequence from={ctaFrame} durationInFrames={totalFrames - ctaFrame}>
-        <CTAOverlay text={ctaText} appearFrame={0} />
-      </Sequence>
+      {/* CTA — only show if there's room */}
+      {ctaFrame < totalFrames ? (
+        <Sequence from={ctaFrame} durationInFrames={Math.max(1, totalFrames - ctaFrame)}>
+          <CTAOverlay text={ctaText} appearFrame={0} />
+        </Sequence>
+      ) : null}
 
       {/* Watermark */}
       <Watermark visible={watermark} totalFrames={totalFrames} />

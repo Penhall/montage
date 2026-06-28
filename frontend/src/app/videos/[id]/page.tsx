@@ -1,6 +1,6 @@
 import VideoDetailClient from "./VideoDetailClient";
 
-export const dynamicParams = false;
+export const dynamicParams = true;
 
 export function generateStaticParams() {
   return [{ id: "placeholder" }];
