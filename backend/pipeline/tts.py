@@ -12,6 +12,7 @@ import logging
 import subprocess
 import wave
 from pathlib import Path
+from typing import Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ async def generate_tts(
     scenes: list[dict],
     job_id: str,
     tmp_root: Path,
+    progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> list[dict]:
     """Generate one WAV file per scene.
 
@@ -36,26 +38,21 @@ async def generate_tts(
     piper_available = await _check_piper()
 
     results: list[dict] = []
-    tasks = []
-
-    for scene in scenes:
-        scene_id = scene.get("scene_id", 0)
-        dialogue = scene.get("dialogue", "")
-        out_path = tts_dir / f"scene_{scene_id}.wav"
-        tasks.append(
-            _generate_single_tts(dialogue, out_path, scene_id, piper_available)
-        )
-
-    audio_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for i, scene in enumerate(scenes):
         scene_id = scene.get("scene_id", 0)
-        result = audio_results[i]
-        if isinstance(result, Exception):
-            logger.error("TTS failed for scene %d: %s", scene_id, result)
-            continue
-        if result:
-            results.append(result)
+        dialogue = scene.get("dialogue", "")
+        out_path = tts_dir / f"scene_{scene_id}.wav"
+
+        try:
+            result = await _generate_single_tts(dialogue, out_path, scene_id, piper_available)
+            if result:
+                results.append(result)
+        except Exception as exc:
+            logger.error("TTS failed for scene %d: %s", scene_id, exc)
+
+        if progress_callback:
+            await progress_callback(i + 1, len(scenes))
 
     logger.info("TTS complete: %d/%d files", len(results), len(scenes))
     return results

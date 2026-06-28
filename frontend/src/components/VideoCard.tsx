@@ -89,7 +89,7 @@ export default function VideoCard({ video, onDownload, onRetry }: VideoCardProps
         <h3 className="text-sm font-medium truncate">{video.title}</h3>
         <div className="flex items-center justify-between">
           <span className="text-xs font-mono text-[var(--text-tertiary)]">
-            {video.duration}
+            {video.duration_s ? `${video.duration_s}s` : "—"}
           </span>
           <span className="text-xs font-mono text-[var(--text-tertiary)]">
             {relativeTime(video.created_at)}

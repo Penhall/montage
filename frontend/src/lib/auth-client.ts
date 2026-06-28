@@ -10,6 +10,8 @@ export interface User {
   id: string;
   email: string;
   tier: string;
+  videos_this_month?: number;
+  videos_limit?: number;
   is_admin: boolean;
 }
 

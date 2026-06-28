@@ -106,10 +106,16 @@ class PipelineEngine:
             # ── Stage 3: Images ───────────────────────────────────────
             await self._stage_start(JobStatus.gathering_images, self.IMAGES_RANGE[0],
                                     f"Searching images for {scene_count} scenes...")
+
+            async def images_progress(done: int, total: int):
+                pct = self.IMAGES_RANGE[0] + int((done / total) * (self.IMAGES_RANGE[1] - self.IMAGES_RANGE[0]))
+                await self._set_progress_msg(pct, f"Images: {done}/{total}")
+
             image_mappings = await gather_images(
                 scenes=script.get("scenes", []),
                 job_id=job_id,
                 tmp_root=self._tmp_root,
+                progress_callback=images_progress,
             )
             img_count = len(image_mappings)
             print(f"[Pipeline] Images gathered: {img_count}/{scene_count}")
@@ -119,10 +125,16 @@ class PipelineEngine:
             # ── Stage 4: TTS ──────────────────────────────────────────
             await self._stage_start(JobStatus.generating_tts, self.TTS_RANGE[0],
                                     f"Generating voiceover for {scene_count} slides...")
+
+            async def tts_progress(done: int, total: int):
+                pct = self.TTS_RANGE[0] + int((done / total) * (self.TTS_RANGE[1] - self.TTS_RANGE[0]))
+                await self._set_progress_msg(pct, f"Audio: {done}/{total} slides")
+
             audio_mappings = await generate_tts(
                 scenes=script.get("scenes", []),
                 job_id=job_id,
                 tmp_root=self._tmp_root,
+                progress_callback=tts_progress,
             )
             audio_count = len(audio_mappings)
             print(f"[Pipeline] TTS generated: {audio_count}/{scene_count} files")

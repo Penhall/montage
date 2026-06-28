@@ -33,6 +33,7 @@ export default function SettingsPage() {
       setUser(u);
       setTier(u.tier as "free" | "pro");
       setLimit(u.tier === "pro" ? 999 : 3);
+      setUsed(u.videos_this_month || 0);
       setLoading(false);
     };
     fetchUser();

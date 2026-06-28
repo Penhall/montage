@@ -82,9 +82,10 @@ class Job(BaseModel):
 
 class Video(BaseModel):
     id: str
-    job_id: str
+    job_id: str | None = None
     user_id: str
     title: str
+    status: str = "done"  # Videos only exist post-render — always done
     storage_path: str
     thumbnail_path: str | None = None
     duration_s: int | None = None

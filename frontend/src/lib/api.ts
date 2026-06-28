@@ -27,29 +27,34 @@ export interface CreateJobParams {
 
 export interface Job {
   id: string;
-  status: "pending" | "processing" | "completed" | "failed";
-  pipeline: string;
-  title: string;
-  duration: string;
-  platform: string;
-  style: string;
+  status:
+    | "pending"
+    | "researching"
+    | "scripting"
+    | "gathering_images"
+    | "generating_tts"
+    | "rendering"
+    | "uploading"
+    | "completed"
+    | "failed";
   progress: number;
   progress_message?: string;
   stage_started_at?: string;
-  stage: string;
+  title: string;
+  params?: { title?: string };
   created_at: string;
-  video_id?: string;
   error?: string;
 }
 
 export interface Video {
   id: string;
   title: string;
-  duration: string;
-  platform: string;
-  style: string;
+  duration_s?: number;
+  platform_profile?: string;
+  style_playbook?: string;
   status: "processing" | "done" | "failed";
   thumbnail_url?: string;
+  download_url?: string;
   size?: number;
   created_at: string;
   stage?: string;

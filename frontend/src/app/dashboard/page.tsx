@@ -11,7 +11,7 @@ import TierBadge from "@/components/TierBadge";
 import LogoutButton from "@/components/LogoutButton";
 import { UserIcon, SpinnerIcon } from "@/components/IconComponents";
 import ProgressOverlay from "@/components/ProgressOverlay";
-import { createJob, getVideos, getVideoDownloadUrl, type Video } from "@/lib/api";
+import { createJob, getJobs, getVideos, getVideoDownloadUrl, type Job, type Video } from "@/lib/api";
 import { getUser } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [videos, setVideos] = useState<Video[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [tauriJobs, setTauriJobs] = useState<MontageJob[]>([]);
   const [videosLoading, setVideosLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -49,9 +50,9 @@ export default function DashboardPage() {
       id: job.id,
       title: job.title,
       status,
-      duration: "0s",
-      platform: "Desktop",
-      style: "Local",
+      duration_s: 0,
+      platform_profile: "Desktop",
+      style_playbook: "Local",
       created_at: job.created_at,
       progress: job.progress,
     };
@@ -99,8 +100,12 @@ export default function DashboardPage() {
         setVideos(videoItems);
         setTierUsed(videoItems.length);
       } else {
-        const data = await getVideos();
-        setVideos(data);
+        const [videoData, jobData] = await Promise.all([
+          getVideos(),
+          getJobs(),
+        ]);
+        setVideos(videoData);
+        setJobs(jobData);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
@@ -126,6 +131,7 @@ export default function DashboardPage() {
         if (u) {
           setTier(u.tier as "free" | "pro");
           setTierLimit(u.tier === "pro" ? 999 : 3);
+          setTierUsed(u.videos_this_month || 0);
         }
       });
     }
@@ -139,13 +145,18 @@ export default function DashboardPage() {
 
   // Poll for processing jobs
   useEffect(() => {
-    const processingJobs = isTauriMode
+    const processingItems = isTauriMode
       ? tauriJobs.filter((j) => j.status === "processing" || j.status === "pending")
-      : videos.filter((v) => v.status === "processing");
-    if (processingJobs.length === 0) return;
-    const interval = setInterval(fetchItems, 5000);
+      : [...videos, ...jobs].filter(
+          (v) =>
+            v.status !== "completed" &&
+            v.status !== "done" &&
+            v.status !== "failed",
+        );
+    if (processingItems.length === 0) return;
+    const interval = setInterval(fetchItems, 3000);
     return () => clearInterval(interval);
-  }, [isTauriMode, tauriJobs, videos, fetchItems]);
+  }, [isTauriMode, tauriJobs, videos, jobs, fetchItems]);
 
   // ── Create job ─────────────────────────────────────────────────────
   const handleCreate = async (params: {
@@ -210,9 +221,29 @@ export default function DashboardPage() {
   };
 
   const displayUser = user;
+
+  // Map non-completed backend jobs to Video shape for gallery display
+  const jobVideos: Video[] = isTauriMode
+    ? []
+    : jobs
+        .filter((j) => j.status !== "completed")
+        .map((job) => ({
+          id: job.id,
+          title: (job as any).params?.title || job.title || "Untitled",
+          status: job.status === "failed" ? "failed" : "processing",
+          created_at: job.created_at,
+          progress: job.progress,
+          progress_message: job.progress_message,
+          stage: job.status,
+          stage_started_at: job.stage_started_at,
+        }));
+
   const allItems: Video[] = isTauriMode
     ? tauriJobs.map(tauriJobToVideo)
-    : videos;
+    : [...jobVideos, ...videos].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
 
   if (loading) {
     return (
@@ -222,9 +253,9 @@ export default function DashboardPage() {
     );
   }
 
-  const doneCount = allItems.filter(
-    (v: { status: string }) => v.status === "done",
-  ).length;
+  const doneCount = isTauriMode
+    ? allItems.filter((v: { status: string }) => v.status === "done").length
+    : tierUsed;
 
   return (
     <div className="flex flex-col min-h-screen">

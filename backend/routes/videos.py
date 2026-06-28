@@ -75,6 +75,7 @@ async def get_video(video_id: str, request: Request) -> Video:
         job_id=str(row["job_id"]) if row.get("job_id") else None,
         user_id=str(row["user_id"]),
         title=row.get("title", "Untitled"),
+        status="done",
         storage_path=row.get("storage_path", ""),
         thumbnail_path=row.get("thumbnail_path"),
         duration_s=row.get("duration_s"),

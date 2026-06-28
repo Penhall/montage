@@ -21,6 +21,7 @@ export default function VideoDetailClient({ id }: VideoDetailClientProps) {
   const [loading, setLoading] = useState(true);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -64,6 +65,19 @@ export default function VideoDetailClient({ id }: VideoDetailClientProps) {
     }, 5000);
 
     return () => clearInterval(interval);
+  }, [video?.status, id]);
+
+  // Fetch download URL when video is done
+  useEffect(() => {
+    if (!video || video.status !== "done") {
+      setDownloadUrl(null);
+      return;
+    }
+    getVideoDownloadUrl(id)
+      .then(setDownloadUrl)
+      .catch(() => {
+        // download URL not yet available — video may still finalizing
+      });
   }, [video?.status, id]);
 
   const handleDownload = async () => {
@@ -150,28 +164,32 @@ export default function VideoDetailClient({ id }: VideoDetailClientProps) {
 
         {/* Video player */}
         {video.status === "done" ? (
-          <div className="aspect-video bg-black border border-[var(--border)]">
-            {video.thumbnail_url ? (
-              <video
-                controls
-                poster={video.thumbnail_url}
-                className="w-full h-full object-contain"
-              >
-                <source
-                  src={video.thumbnail_url.replace("/thumbnail", "/video")}
-                  type="video/mp4"
-                />
-              </video>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-[var(--text-tertiary)]">
-                <span className="text-sm font-mono">Video ready</span>
+          <div className="aspect-video bg-black border border-[var(--border)] relative">
+            <video
+              controls
+              poster={video.thumbnail_url || undefined}
+              className="w-full h-full object-contain"
+            >
+              {downloadUrl && <source src={downloadUrl} type="video/mp4" />}
+            </video>
+            {!downloadUrl && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                <span className="text-sm font-mono text-[var(--text-tertiary)]">
+                  Loading video...
+                </span>
               </div>
             )}
           </div>
         ) : video.status === "processing" ? (
           <div className="aspect-video border border-[var(--border)] bg-[var(--bg-tertiary)] flex flex-col items-center justify-center gap-4 p-8">
             <SpinnerIcon size={40} className="text-[var(--accent)]" />
-            <JobProgress stage={video.stage || "processing"} progress={video.progress || 0} />
+            <JobProgress
+              stage={video.stage || "processing"}
+              progress={video.progress || 0}
+              progressMessage={video.progress_message}
+              stageStartedAt={video.stage_started_at}
+              createdAt={video.created_at}
+            />
           </div>
         ) : (
           <div className="aspect-video border border-[var(--accent-red)] bg-[var(--accent-red)]/5 flex flex-col items-center justify-center gap-2">
@@ -190,10 +208,10 @@ export default function VideoDetailClient({ id }: VideoDetailClientProps) {
         {/* Metadata card */}
         <div className="border border-[var(--border)] bg-[var(--bg-secondary)] divide-y divide-[var(--border)]">
           {[
-            ["Duration", video.duration],
+            ["Duration", `${video.duration_s ?? 0}s`],
             ["Created", formatDate(video.created_at)],
-            ["Style", video.style],
-            ["Platform", video.platform],
+            ["Style", video.style_playbook || "—"],
+            ["Platform", video.platform_profile || "—"],
             ["Size", formatSize(video.size)],
           ].map(([label, value]) => (
             <div

@@ -8,9 +8,9 @@ Downloads the best match to ``tmp/<job_id>/images/scene_<N>.<ext>``.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
+from typing import Callable, Awaitable
 
 import httpx
 
@@ -27,6 +27,7 @@ async def gather_images(
     scenes: list[dict],
     job_id: str,
     tmp_root: Path,
+    progress_callback: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> list[dict]:
     """Gather one image per scene and return scene→file-path mappings.
 
@@ -38,25 +39,23 @@ async def gather_images(
     logger.info("Images stage: gathering %d images for job %s", len(scenes), job_id)
 
     results: list[dict] = []
-    tasks = []
-
-    for scene in scenes:
-        scene_id = scene.get("scene_id", 0)
-        visual_prompt = scene.get("visual_prompt", "")
-        out_path = image_dir / f"scene_{scene_id}.jpg"
-        tasks.append(_fetch_single_image(visual_prompt, out_path, scene_id))
-
-    # Run all image fetches concurrently
-    fetched = await asyncio.gather(*tasks, return_exceptions=True)
 
     for i, scene in enumerate(scenes):
         scene_id = scene.get("scene_id", 0)
-        result = fetched[i]
-        if isinstance(result, Exception):
-            logger.error("Image fetch failed for scene %d: %s", scene_id, result)
-            continue
-        if result:
-            results.append({"scene_id": scene_id, "path": str(result)})
+        visual_prompt = scene.get("visual_prompt", "")
+        out_path = image_dir / f"scene_{scene_id}.jpg"
+
+        try:
+            result = await _fetch_single_image(visual_prompt, out_path, scene_id)
+            if result:
+                results.append({"scene_id": scene_id, "path": str(result)})
+            else:
+                logger.error("Image fetch returned None for scene %d", scene_id)
+        except Exception as exc:
+            logger.error("Image fetch failed for scene %d: %s", scene_id, exc)
+
+        if progress_callback:
+            await progress_callback(i + 1, len(scenes))
 
     logger.info("Images gathered: %d/%d", len(results), len(scenes))
     return results

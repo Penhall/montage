@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { PlayIcon, PencilIcon, SparklesIcon, DownloadIcon } from "@/components/IconComponents";
+import { useRouter } from "next/navigation";
+import { PlayIcon, PencilIcon, SparklesIcon, DownloadIcon, SpinnerIcon } from "@/components/IconComponents";
+import { getUser } from "@/lib/auth-client";
 
 const EXAMPLES = [
   { title: "Animated Explainer", color: "#1a3a2a" },
@@ -10,6 +13,30 @@ const EXAMPLES = [
 ];
 
 export default function LandingPage() {
+  const router = useRouter();
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    getUser()
+      .then((user) => {
+        if (user) {
+          router.push("/dashboard");
+        } else {
+          setAuthLoading(false);
+        }
+      })
+      .catch(() => {
+        setAuthLoading(false);
+      });
+  }, [router]);
+
+  if (authLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center min-h-screen">
+        <SpinnerIcon size={32} className="text-[var(--accent)]" />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col min-h-screen">
       {/* Nav */}
