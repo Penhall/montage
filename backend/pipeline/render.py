@@ -25,8 +25,14 @@ async def render_video(
     audio_mappings: list[dict],
     job_id: str,
     tmp_root: Path,
+    template_id: str = "hook_3points_cta",
 ) -> Path:
     """Render the final MP4 video using Remotion.
+
+    *template_id* selects the Remotion composition:
+      - "hook_3points_cta" → AnimatedExplainer
+      - "nerdologia"       → NerdologiaExplainer
+      - "problem_solution" → AnimatedExplainer (for now)
 
     Returns the path to the rendered MP4.
     """
@@ -74,11 +80,12 @@ async def render_video(
 
     # Run Remotion render
     # Syntax: remotion render <composition> [output]  (cwd = project dir)
+    composition_name = _composition_for_template(template_id)
     cmd = [
         "npx",
         "remotion",
         "render",
-        "AnimatedExplainer",
+        composition_name,
         str(output_path),
         f"--props={props_path}",
     ]
@@ -209,6 +216,16 @@ def _build_render_props(
         "outputHeight": 1920,
         "watermark": False,
     }
+
+
+def _composition_for_template(template_id: str) -> str:
+    """Map a narrative template ID to a Remotion composition name."""
+    mapping = {
+        "hook_3points_cta": "AnimatedExplainer",
+        "problem_solution": "AnimatedExplainer",
+        "nerdologia": "NerdologiaExplainer",
+    }
+    return mapping.get(template_id, "AnimatedExplainer")
 
 
 def _create_stub_video(output_path: Path) -> Path:

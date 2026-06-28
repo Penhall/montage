@@ -23,6 +23,7 @@ export interface CreateJobParams {
   duration: string;
   platform: string;
   style: string;
+  template?: string;
 }
 
 export interface Job {
@@ -65,13 +66,16 @@ export interface Video {
 
 export async function createJob(params: CreateJobParams): Promise<Job> {
   // Map frontend form values to backend enum values
-  const body = {
+  const body: Record<string, any> = {
     title: params.title,
     topic: params.topic || params.title,
     duration: parseInt(params.duration) || 60,
     platform: PLATFORM_MAP[params.platform] || "tiktok_9_16",
     style: STYLE_MAP[params.style] || "clean_professional",
   };
+  if (params.template) {
+    body.template = params.template;
+  }
   return apiFetch<Job>("/api/jobs", {
     method: "POST",
     body: JSON.stringify(body),

@@ -175,6 +175,7 @@ export default function DashboardPage() {
     duration: string;
     platform: string;
     style: string;
+    template: string;
   }) => {
     setCreating(true);
     try {
@@ -200,7 +201,8 @@ export default function DashboardPage() {
           platform: params.platform,
           style: params.style,
           duration: params.duration,
-        });
+          template: params.template || "hook_3points_cta",
+        } as any);
         toast.success("Video job created");
         fetchItems();
       }
@@ -282,6 +284,11 @@ export default function DashboardPage() {
     "clean-professional": "Clean Professional",
     "flat-motion": "Flat Motion",
     "minimalist": "Minimalist",
+  };
+  const templateLabels: Record<string, string> = {
+    "nerdologia": "Nerdologia",
+    "hook_3points_cta": "Hook + 3 Pontos + CTA",
+    "problem_solution": "Problema → Solução",
   };
 
   return (
@@ -400,6 +407,12 @@ export default function DashboardPage() {
                     <div className="px-4 py-3">
                       <span className="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wider">Duração</span>
                       <p className="text-sm font-mono mt-0.5">{composition.duration}s</p>
+                    </div>
+                    <div className="px-4 py-3">
+                      <span className="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wider">Template</span>
+                      <p className="text-sm font-mono mt-0.5">
+                        {templateLabels[(composition as any).template] || (composition as any).template || "Hook + 3 Pontos"}
+                      </p>
                     </div>
                   </div>
                   {activeJobId && (

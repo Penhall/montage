@@ -1,7 +1,10 @@
 """Script generation stage.
 
 Calls the DeepSeek API to generate a structured video script JSON based
-on the research summary and user-provided parameters.
+on the research summary, user-provided parameters, and a narrative template.
+
+Templates constrain the story structure (beats, timing, tone) so generated
+scripts follow proven patterns (Nerdologia, Hook+3Points, Problem→Solution).
 """
 
 from __future__ import annotations
@@ -14,6 +17,13 @@ from datetime import datetime
 import httpx
 
 from backend.config import settings
+from backend.pipeline.narrative_templates import (
+    Beat,
+    NarrativeTemplate,
+    TemplateDefinition,
+    build_prompt_context,
+    get_template,
+)
 from backend.pipeline.research import ResearchResult
 
 logger = logging.getLogger(__name__)
@@ -21,20 +31,20 @@ logger = logging.getLogger(__name__)
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL = "deepseek-chat"
 
-SYSTEM_PROMPT = """You are a professional video scriptwriter. Generate a video script as valid JSON.
-Video duration: 30-90 seconds. Platform: TikTok/Instagram Reels/YouTube Shorts (vertical 9:16).
+SYSTEM_PROMPT_BASE = """You are a professional video scriptwriter for short-form vertical video (9:16).
+Generate a video script as valid JSON following the EXACT template structure provided.
 RETURN ONLY JSON, no markdown, no explanation.
 
 FORMAT:
 {
   "script_id": "scr_YYYYMMDD_XXXXX",
-  "title": "catchy title, max 60 chars",
+  "title": "catchy title, max 60 chars, in Brazilian Portuguese",
   "seo_keywords": ["kw1", "kw2", "kw3"],
   "scenes": [
     {
       "scene_id": 1,
-      "dialogue": "hook — grab attention in first 3 seconds",
-      "visual_prompt": "description for image search in English",
+      "dialogue": "spoken narration for this beat, in Brazilian Portuguese",
+      "visual_prompt": "English description for image search matching this beat",
       "duration_s": 4
     }
   ],
@@ -51,24 +61,42 @@ async def generate_script(
     duration: int = 45,
     platform: str = "tiktok_9_16",
     style: str = "clean_professional",
+    template_id: str = NarrativeTemplate.HOOK_3POINTS_CTA,
 ) -> dict:
     """Generate a video script via the DeepSeek API.
 
+    Uses the specified narrative template to constrain structure,
+    timing, and tone.
+
     Returns the parsed JSON script as a Python dict.
     """
-    logger.info("Script stage: topic='%s', duration=%ds, platform=%s", topic, duration, platform)
+    try:
+        template = get_template(template_id)
+    except ValueError:
+        logger.warning(
+            "Unknown template '%s' — falling back to hook_3points_cta",
+            template_id,
+        )
+        template = get_template(NarrativeTemplate.HOOK_3POINTS_CTA)
 
+    logger.info(
+        "Script stage: topic='%s', duration=%ds, template=%s, platform=%s",
+        topic, duration, template_id, platform,
+    )
+
+    template_context = build_prompt_context(template)
+    system_prompt = SYSTEM_PROMPT_BASE + "\n\n" + template_context
     user_prompt = _build_user_prompt(topic, research, duration, platform, style)
 
     api_key = settings.deepseek_api_key
     if not api_key:
         logger.warning("DEEPSEEK_API_KEY not set — generating stub script")
-        return _generate_stub_script(topic, duration)
+        return _generate_stub_script(topic, template)
 
     payload = {
         "model": DEEPSEEK_MODEL,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.7,
@@ -139,27 +167,44 @@ def _build_user_prompt(
     return "\n".join(lines)
 
 
-def _generate_stub_script(topic: str, duration: int) -> dict:
-    """Generate a stub script when the DeepSeek API key is unavailable."""
-    scene_count = max(3, duration // 8)
+def _generate_stub_script(topic: str, template: TemplateDefinition) -> dict:
+    """Generate a stub script following the template structure.
+
+    Used when the DeepSeek API key is unavailable.
+    Still respects beat structure and timing from the template.
+    """
     scenes = []
-    per_scene = max(4, duration // scene_count)
+    dialogue_templates = {
+        "hook": f"Você sabia disso sobre {topic}?",
+        "question_hook": f"Como funciona {topic}? A resposta vai te surpreender.",
+        "problem_hook": f"O maior erro com {topic} que quase todo mundo comete.",
+        "context": f"{topic} está em todo lugar — mas pouca gente entende de verdade.",
+        "quick_context": f"Parece simples, mas {topic} tem camadas que ninguém te conta.",
+        "agitation": "E o pior: sem entender isso, você toma decisão errada.",
+        "solution_intro": "É aí que a solução certa muda tudo.",
+        "point_1": f"Primeiro: {topic} não é o que parece à primeira vista.",
+        "point_2": f"Segundo: o que realmente importa em {topic} é a estrutura por trás.",
+        "point_3": f"Terceiro: o insight que conecta tudo sobre {topic}.",
+        "layer_1": f"{topic} começa com um princípio simples que quase todo mundo ignora.",
+        "layer_2": f"Mas a segunda camada de {topic} revela algo que contradiz o senso comum.",
+        "layer_3": f"E a camada mais profunda de {topic} muda completamente como você vê o assunto.",
+        "feature_1": f"Com a ferramenta certa, você resolve {topic} em segundos.",
+        "feature_2": "E o melhor: sem curva de aprendizado.",
+        "conclusion": f"Agora você sabe o essencial sobre {topic}. Use esse conhecimento.",
+        "payoff": f"E é por isso que {topic} é muito mais interessante do que parece.",
+        "result": "O resultado fala por si: menos tempo, mais resultado.",
+        "cta": "Segue pra mais conteúdos como esse!",
+        "signature_cta": "Curte e compartilha pra mais curiosidades como essa.",
+    }
 
-    dialogues = [
-        f"Did you know this about {topic}? Let me explain.",
-        f"Here's what you need to understand about {topic}.",
-        f"This is how {topic} works in practice.",
-        f"Let me show you a real example of {topic}.",
-        f"Here's the key insight about {topic}.",
-    ]
-
-    for i in range(scene_count):
-        dialogue = dialogues[i % len(dialogues)]
+    for beat in template.beats:
+        dialogue = dialogue_templates.get(beat.id, f"Vamos falar sobre {topic}.")
+        visual_prompt = _beat_visual_prompt(beat, topic)
         scenes.append({
-            "scene_id": i + 1,
+            "scene_id": beat.id if isinstance(beat.id, int) else len(scenes) + 1,
             "dialogue": dialogue,
-            "visual_prompt": f"{topic} visual — {['concept art', 'real footage', 'animation', 'diagram', 'example'][i % 5]}",
-            "duration_s": per_scene,
+            "visual_prompt": visual_prompt,
+            "duration_s": beat.duration_s,
         })
 
     today = datetime.utcnow().strftime("%Y%m%d")
@@ -171,8 +216,40 @@ def _generate_stub_script(topic: str, duration: int) -> dict:
         "seo_keywords": [topic.lower().replace(" ", "_")],
         "scenes": scenes,
         "audio": {"background_music_tag": "upbeat_light"},
-        "editing": {"cta_text": "Follow for more!", "cta_overlay_at_s": max(10, duration - 15)},
+        "editing": {
+            "cta_text": "Follow for more!",
+            "cta_overlay_at_s": sum(b.duration_s for b in template.beats[:-1]),
+        },
     }
 
-    logger.info("Stub script generated: %d scenes", scene_count)
+    logger.info("Stub script generated: %d scenes (template=%s)", len(scenes), template.id)
     return script
+
+
+def _beat_visual_prompt(beat: Beat, topic: str) -> str:
+    """Generate an English visual prompt for a beat."""
+
+    visual_map = {
+        "hook": f"dramatic attention-grabbing image about {topic}, high contrast",
+        "question_hook": f"intriguing visual question mark or mystery concept art about {topic}",
+        "problem_hook": f"frustrating situation related to {topic}, dramatic lighting",
+        "context": f"explainer context visual for {topic}, clean professional stock photo",
+        "quick_context": f"fast context setting image about {topic}, editorial style",
+        "agitation": f"stressful consequence of not understanding {topic}",
+        "solution_intro": f"clean modern solution concept for {topic}",
+        "point_1": f"educational diagram explaining first aspect of {topic}",
+        "point_2": f"detailed infographic about {topic} second layer",
+        "point_3": f"mind-blowing visualization of {topic} deepest insight",
+        "layer_1": f"scientific illustration showing basic principle of {topic}",
+        "layer_2": f"comparison diagram showing hidden complexity of {topic}",
+        "layer_3": f"stunning reveal or aha-moment visualization for {topic}",
+        "feature_1": f"clean product screenshot showing {topic} solution",
+        "feature_2": f"before-after comparison for {topic}",
+        "conclusion": f"summary wrap-up visual for {topic}, satisfying closure",
+        "payoff": f"impactful closing statement visual about {topic}, memorable",
+        "result": f"successful outcome after solving {topic}, happy result",
+        "cta": "follow for more, like and subscribe, engaging call to action",
+        "signature_cta": "nerdologia style sign-off, educational channel branding",
+    }
+    return visual_map.get(beat.id, f"{topic} visual illustration")
+

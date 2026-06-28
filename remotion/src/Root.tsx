@@ -1,5 +1,6 @@
 import { Composition } from "remotion";
 import { AnimatedExplainer, AnimatedExplainerSchema } from "./AnimatedExplainer";
+import NerdologiaExplainer, { NerdologiaExplainerSchema } from "./NerdologiaExplainer";
 import { SocialClip, SocialClipSchema } from "./SocialClip";
 
 export const RemotionRoot: React.FC = () => {
@@ -26,6 +27,32 @@ export const RemotionRoot: React.FC = () => {
           ],
           ctaText: "Follow for more!",
           ctaOverlayAtS: 50,
+          outputWidth: 1080,
+          outputHeight: 1920,
+          watermark: false,
+        }}
+      />
+      <Composition
+        id="NerdologiaExplainer"
+        component={NerdologiaExplainer}
+        durationInFrames={1800}
+        fps={30}
+        width={1080}
+        height={1920}
+        schema={NerdologiaExplainerSchema}
+        defaultProps={{
+          title: "Default Nerdologia Explainer",
+          scenes: [
+            {
+              scene_id: 1,
+              imagePath: "",
+              audioPath: "",
+              dialogue: "Você sabia?",
+              duration_s: 4,
+            },
+          ],
+          ctaText: "Curte e compartilha!",
+          ctaOverlayAtS: 35,
           outputWidth: 1080,
           outputHeight: 1920,
           watermark: false,

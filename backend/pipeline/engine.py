@@ -94,6 +94,7 @@ class PipelineEngine:
                 duration=self._params.get("duration", 45),
                 platform=self._params.get("platform", "tiktok_9_16"),
                 style=self._params.get("style", "clean_professional"),
+                template_id=self._params.get("template", "hook_3points_cta"),
             )
             # Store script JSON in DB
             script_json = json.dumps(script)
@@ -150,6 +151,7 @@ class PipelineEngine:
                 audio_mappings=audio_mappings,
                 job_id=job_id,
                 tmp_root=self._tmp_root,
+                template_id=self._params.get("template", "hook_3points_cta"),
             )
             duration_s = self._compute_duration(script)
             print(f"[Pipeline] Render complete: {output_path}, ~{duration_s}s")
