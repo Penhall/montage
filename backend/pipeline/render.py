@@ -91,7 +91,16 @@ async def render_video(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout_bytes, stderr_bytes = await proc.communicate()
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(), timeout=settings.render_timeout_s
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError(
+            f"Remotion render timed out after {settings.render_timeout_s}s"
+        )
 
     stdout_str = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
     stderr_str = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""

@@ -95,8 +95,9 @@ export async function getVideo(id: string): Promise<Video> {
 }
 
 export async function getVideoDownloadUrl(id: string): Promise<string> {
-  const data = await apiFetch<{ url: string }>(`/api/videos/${id}/download`);
-  return data.url;
+  // The download endpoint returns the video binary directly (FileResponse).
+  // We return the URL path so the <video> element fetches it natively.
+  return `/api/videos/${id}/download`;
 }
 
 export async function deleteVideo(id: string): Promise<void> {

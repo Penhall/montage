@@ -44,6 +44,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
 
+    def _extract_token(self, request: Request) -> str | None:
+        """Extract JWT from Authorization header or montage_token cookie."""
+        # Priority 1: Authorization header
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.removeprefix("Bearer ").strip()
+            if token:
+                return token
+
+        # Priority 2: montage_token cookie (for browser-native fetches: video, img)
+        cookie_token = request.cookies.get("montage_token")
+        if cookie_token:
+            return cookie_token.strip()
+
+        return None
+
     async def dispatch(
         self,
         request: Request,
@@ -55,18 +71,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path in PUBLIC_PATHS or path.startswith(("/docs", "/openapi.json", "/redoc")):
             return await call_next(request)  # type: ignore[return-value]
 
-        # ── Extract Bearer token ──────────────────────────────────────
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                {"detail": "Missing or malformed Authorization header"},
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-        token = auth_header.removeprefix("Bearer ").strip()
-
+        # ── Extract Bearer token (header or cookie) ──────────────────
+        token = self._extract_token(request)
         if not token:
             return JSONResponse(
-                {"detail": "Empty token"},
+                {"detail": "Missing or malformed Authorization header"},
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 

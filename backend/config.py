@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # -- Logging --
     log_level: str = "INFO"
 
+    # -- Rendering --
+    render_timeout_s: int = 300  # 5 minutes max for Remotion render
+
     # -- Paths --
     backend_root: Path = Path(__file__).parent.resolve()
     tmp_root: Path = backend_root / "tmp"

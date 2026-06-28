@@ -11,7 +11,7 @@ import TierBadge from "@/components/TierBadge";
 import LogoutButton from "@/components/LogoutButton";
 import { UserIcon, SpinnerIcon } from "@/components/IconComponents";
 import ProgressOverlay from "@/components/ProgressOverlay";
-import { createJob, getJobs, getVideos, getVideoDownloadUrl, type Job, type Video } from "@/lib/api";
+import { createJob, getJobs, getVideos, getVideoDownloadUrl, getVideo, type Job, type Video } from "@/lib/api";
 import { getUser } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -37,6 +37,16 @@ export default function DashboardPage() {
   const [tierUsed, setTierUsed] = useState(0);
   const [tierLimit, setTierLimit] = useState(3);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"create" | "videos">("create");
+
+  // Composition preview — updated when a job is created or completes
+  const [composition, setComposition] = useState<{
+    title: string;
+    topic: string;
+    platform: string;
+    style: string;
+    duration: string;
+  } | null>(null);
 
   const tauriJobToVideo = useCallback((job: MontageJob): Video => {
     const status: Video["status"] =
@@ -61,7 +71,6 @@ export default function DashboardPage() {
   // ── Auth ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (isTauriMode) {
-      // Tauri mode: the auth context provides the user
       if (!tauriCtxUser) {
         router.push("/login");
         return;
@@ -185,6 +194,13 @@ export default function DashboardPage() {
       } else {
         const job = await createJob(params);
         setActiveJobId(job.id);
+        setComposition({
+          title: params.title,
+          topic: params.topic || params.title,
+          platform: params.platform,
+          style: params.style,
+          duration: params.duration,
+        });
         toast.success("Video job created");
         fetchItems();
       }
@@ -257,6 +273,17 @@ export default function DashboardPage() {
     ? allItems.filter((v: { status: string }) => v.status === "done").length
     : tierUsed;
 
+  const platformLabels: Record<string, string> = {
+    "tiktok-9:16": "TikTok (9:16)",
+    "youtube-16:9": "YouTube (16:9)",
+    "instagram-1:1": "Instagram (1:1)",
+  };
+  const styleLabels: Record<string, string> = {
+    "clean-professional": "Clean Professional",
+    "flat-motion": "Flat Motion",
+    "minimalist": "Minimalist",
+  };
+
   return (
     <div className="flex flex-col min-h-screen">
       <header className="flex items-center justify-between px-6 py-3 border-b border-[var(--border)]">
@@ -288,69 +315,172 @@ export default function DashboardPage() {
       <div className="flex-1 max-w-5xl w-full mx-auto px-4 py-6 space-y-6">
         <TierBadge tier={tier} used={doneCount} limit={tierLimit} />
 
-        {!creating && doneCount >= tierLimit && tier === "free" && (
-          <div className="border border-[var(--accent)] bg-[var(--accent)]/5 p-6 text-center space-y-3">
-            <p className="text-sm font-bold">
-              You&apos;ve used all {tierLimit} free videos this month.
-            </p>
-            <p className="text-sm text-[var(--text-secondary)]">
-              Upgrade to Pro for unlimited video creation.
-            </p>
-            <Link
-              href="/settings"
-              className="inline-block px-6 py-3 text-xs font-bold uppercase tracking-wider bg-[var(--accent)] text-black border border-[var(--accent)] hover:bg-transparent hover:text-[var(--accent)] transition-colors"
-            >
-              Upgrade to Pro
-            </Link>
+        {/* ── Tab Navigation ────────────────────────────────────────── */}
+        <div className="flex border-b border-[var(--border)]">
+          <button
+            onClick={() => setActiveTab("create")}
+            className={`px-6 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${
+              activeTab === "create"
+                ? "border-[var(--accent)] text-[var(--accent)]"
+                : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            }`}
+          >
+            Criar Vídeo
+          </button>
+          <button
+            onClick={() => setActiveTab("videos")}
+            className={`px-6 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${
+              activeTab === "videos"
+                ? "border-[var(--accent)] text-[var(--accent)]"
+                : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            }`}
+          >
+            Vídeos Gerados ({allItems.filter(v => v.status === "done").length})
+          </button>
+        </div>
+
+        {/* ── Tab: Criar Vídeo ──────────────────────────────────────── */}
+        {activeTab === "create" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Form */}
+            <div className="space-y-4">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                Novo Vídeo
+              </h2>
+
+              {!creating && doneCount >= tierLimit && tier === "free" ? (
+                <div className="border border-[var(--accent)] bg-[var(--accent)]/5 p-6 text-center space-y-3">
+                  <p className="text-sm font-bold">
+                    Você usou os {tierLimit} vídeos gratuitos deste mês.
+                  </p>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Upgrade para Pro para criar vídeos ilimitados.
+                  </p>
+                  <Link
+                    href="/settings"
+                    className="inline-block px-6 py-3 text-xs font-bold uppercase tracking-wider bg-[var(--accent)] text-black border border-[var(--accent)] hover:bg-transparent hover:text-[var(--accent)] transition-colors"
+                  >
+                    Upgrade to Pro
+                  </Link>
+                </div>
+              ) : (
+                <CreateForm onSubmit={handleCreate} loading={creating} />
+              )}
+            </div>
+
+            {/* Composition Panel */}
+            <div className="space-y-4">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                Composição
+              </h2>
+
+              {composition ? (
+                <div className="border border-[var(--border)] bg-[var(--bg-secondary)]">
+                  <div className="divide-y divide-[var(--border)]">
+                    <div className="px-4 py-3">
+                      <span className="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wider">Título</span>
+                      <p className="text-sm font-medium mt-0.5">{composition.title}</p>
+                    </div>
+                    <div className="px-4 py-3">
+                      <span className="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wider">Tema / Tópico</span>
+                      <p className="text-sm font-medium mt-0.5">{composition.topic}</p>
+                    </div>
+                    <div className="px-4 py-3">
+                      <span className="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wider">Plataforma</span>
+                      <p className="text-sm font-mono mt-0.5">
+                        {platformLabels[composition.platform] || composition.platform}
+                      </p>
+                    </div>
+                    <div className="px-4 py-3">
+                      <span className="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wider">Estilo</span>
+                      <p className="text-sm font-mono mt-0.5">
+                        {styleLabels[composition.style] || composition.style}
+                      </p>
+                    </div>
+                    <div className="px-4 py-3">
+                      <span className="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wider">Duração</span>
+                      <p className="text-sm font-mono mt-0.5">{composition.duration}s</p>
+                    </div>
+                  </div>
+                  {activeJobId && (
+                    <div className="border-t border-[var(--border)] p-4 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <SpinnerIcon size={14} className="text-[var(--accent)] animate-spin" />
+                        <span className="text-xs font-mono text-[var(--text-tertiary)]">
+                          Pipeline em andamento...
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setActiveJobId(null)}
+                        className="text-[10px] font-mono text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] underline"
+                      >
+                        Esconder progresso
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-6 text-center">
+                  <p className="text-xs text-[var(--text-tertiary)] font-mono">
+                    Preencha o formulário e crie um vídeo.
+                  </p>
+                  <p className="text-xs text-[var(--text-tertiary)] font-serif italic mt-1">
+                    O roteiro, tema e composição aparecerão aqui.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {!(!creating && doneCount >= tierLimit && tier === "free") && (
-          <CreateForm onSubmit={handleCreate} loading={creating} />
-        )}
+        {/* ── Tab: Vídeos Gerados ───────────────────────────────────── */}
+        {activeTab === "videos" && (
+          <section>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-4">
+              Vídeos Gerados ({allItems.filter(v => v.status === "done").length})
+            </h2>
 
-        <section>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-4">
-            Your Videos ({allItems.length})
-          </h2>
-
-          {videosLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="border border-[var(--border)] bg-[var(--bg-secondary)] animate-pulse"
-                >
-                  <div className="aspect-video bg-[var(--bg-tertiary)]" />
-                  <div className="p-3 space-y-2">
-                    <div className="h-4 bg-[var(--bg-tertiary)] w-3/4" />
-                    <div className="h-3 bg-[var(--bg-tertiary)] w-1/2" />
+            {videosLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="border border-[var(--border)] bg-[var(--bg-secondary)] animate-pulse"
+                  >
+                    <div className="aspect-video bg-[var(--bg-tertiary)]" />
+                    <div className="p-3 space-y-2">
+                      <div className="h-4 bg-[var(--bg-tertiary)] w-3/4" />
+                      <div className="h-3 bg-[var(--bg-tertiary)] w-1/2" />
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : allItems.length === 0 ? (
-            <div className="border border-[var(--border)] bg-[var(--bg-secondary)] p-8 text-center">
-              <p className="text-sm text-[var(--text-secondary)] mb-2">
-                No videos yet. Create your first one above.
-              </p>
-              <p className="text-xs text-[var(--text-tertiary)] font-serif italic">
-                Try &ldquo;Explainer video about AI&rdquo;
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {allItems.map((video) => (
-                <VideoCard
-                  key={video.id}
-                  video={video}
-                  onDownload={handleDownload}
-                  onRetry={handleRetry}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+                ))}
+              </div>
+            ) : allItems.length === 0 ? (
+              <div className="border border-[var(--border)] bg-[var(--bg-secondary)] p-8 text-center">
+                <p className="text-sm text-[var(--text-secondary)] mb-2">
+                  Nenhum vídeo ainda.
+                </p>
+                <button
+                  onClick={() => setActiveTab("create")}
+                  className="text-xs font-bold uppercase tracking-wider text-[var(--accent)] hover:underline"
+                >
+                  Criar primeiro vídeo →
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {allItems.map((video) => (
+                  <VideoCard
+                    key={video.id}
+                    video={video}
+                    onDownload={handleDownload}
+                    onRetry={handleRetry}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </div>
 
       {/* Progress Overlay */}
